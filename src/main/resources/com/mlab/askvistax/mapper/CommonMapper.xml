@@ -3,5 +3,138 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.mlab.askvistax.mapper.CommonMapper">
+    <select id="getUserByUserAccount" resultType="com.mlab.askvistax.pojo.User">
+        select uid, userAccount, userName, roleType, avatar, birth, phone, email, createTime, updateTime, gender
+        from users where userAccount = #{userAccount}
+    </select>
+
+    <select id="getPasswordHashByUserAccount" resultType="string">
+        select passwordHash
+        from users where userAccount = #{userAccount}
+    </select>
+
+    <select id="getCandidateUserByUserAccount" resultType="com.mlab.askvistax.pojo.CandidateUser">
+        select users.uid, users.userAccount, users.userName, users.roleType, users.avatar, users.birth, users.phone, users.email, users.createTime,
+               users.updateTime, users.gender, candidates.candId, candidates.realName, candidates.education, candidates.university, candidates.major,
+               candidates.applyType
+        from users inner join candidates on users.userAccount = candidates.userAccount
+        where users.userAccount = #{userAccount}
+    </select>
+
+    <select id="getInterviewerUserByUserAccount" resultType="com.mlab.askvistax.pojo.InterviewerUser">
+        select users.uid, users.userAccount, users.userName, users.roleType, users.avatar, users.birth, users.phone, users.email, users.createTime,
+               users.updateTime, users.gender, interviewers.interId, interviewers.realName, interviewers.businessGroup, interviewers.department,
+               interviewers.rankLevel, interviewers.position
+        from users inner join interviewers on users.userAccount = interviewers.userAccount
+        where users.userAccount = #{userAccount}
+    </select>
+
+    <insert id="addUser">
+        insert into users(uid, userAccount, passwordHash, userName, roleType, avatar, birth, phone, email, createTime, updateTime, gender)
+        values(#{user.uid}, #{user.userAccount}, #{passwordHash}, #{user.userName}, #{user.roleType}, #{user.avatar},
+               #{user.birth}, #{user.phone}, #{user.email}, #{user.createTime}, #{user.updateTime}, #{user.gender})
+    </insert>
+
+    <insert id="addCandidate">
+        insert into candidates(realname, education, university, major, applytype, useraccount)
+        values(#{realname}, #{education}, #{university}, #{major}, #{applytype}, #{useraccount})
+    </insert>
+
+    <insert id="addInterviewer">
+        insert into interviewers(realName, businessGroup, department, rankLevel, position, userAccount)
+        values(#{realName}, #{businessGroup}, #{department}, #{rankLevel}, #{position}, #{userAccount})
+    </insert>
+
+    <update id="updateBasicUser">
+        update users
+        <set>
+            <if test = "userName != null and userName != ''">
+                userName = #{userName},
+            </if>
+
+            <if test = "avatar != null and avatar != ''">
+                avatar = #{avatar},
+            </if>
+
+            <if test = "birth != null">
+                birth = #{birth},
+            </if>
+
+            <if test = "phone != null and phone != ''">
+                phone = #{phone},
+            </if>
+
+            <if test = "email != null and email != ''">
+                email = #{email},
+            </if>
+
+            <if test = "updateTime != null">
+                updateTime = #{updateTime}
+            </if>
+        </set>
+        where userAccount = #{userAccount}
+    </update>
+
+    <update id="updateCandidate">
+        update candidates
+        <set>
+            <if test = "realName != null and realName != ''">
+                realName = #{realName},
+            </if>
+
+            <if test = "education != null">
+                education = #{education},
+            </if>
+
+            <if test = "university != null and university != ''">
+                university = #{university},
+            </if>
+
+            <if test = "major != null and major != ''">
+                major = #{major},
+            </if>
+
+            <if test = "applyType != null">
+                applyType = #{applyType},
+            </if>
+        </set>
+        where userAccount = #{userAccount}
+    </update>
+
+    <update id="updateInterviewer">
+        update interviewers
+        <set>
+            <if test = "realName != null and realName != ''">
+                realName = #{realName},
+            </if>
+
+            <if test = "businessGroup != null and businessGroup != ''">
+                businessGroup = #{businessGroup},
+            </if>
+
+            <if test = "department != null and department != ''">
+                department = #{department},
+            </if>
+
+            <if test = "rankLevel != null and rankLevel != ''">
+                rankLevel = #{rankLevel},
+            </if>
+
+            <if test = "position != null and position != ''">
+                position = #{position}
+            </if>
+        </set>
+        where userAccount = #{userAccount}
+    </update>
+
+    <update id="updateUserPwd">
+        update users
+        <set>
+            <if test = "newPasswordHash != null and newPasswordHash != ''">
+                passwordHash = #{newPasswordHash}
+            </if>
+        </set>
+        where userAccount = #{userAccount}
+    </update>
 
 </mapper>

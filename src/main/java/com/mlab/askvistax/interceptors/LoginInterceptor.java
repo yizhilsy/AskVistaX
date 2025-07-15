@@ -54,7 +54,7 @@ public class LoginInterceptor implements HandlerInterceptor {
 
             if (requireRole != null) {
                 // 获取当前用户的角色
-                String currentUserRole = claims.get("usertype").toString();
+                String currentUserRole = claims.get("roleType").toString();
                 // 获取请求的接口授权的角色列表
                 String[] requireRoles = requireRole.value();
                 // 核验当前用户是否是授权的角色
@@ -66,7 +66,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             }
         }
 
-        // 把业务数据存储到ThreadLocal中
+        // 把业务数据存储到ThreadLocal中，方便后续业务逻辑使用
         ThreadLocalUtil.set(claims);
         return true;
     }

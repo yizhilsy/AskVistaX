@@ -10,7 +10,7 @@
 
 ##### 用户表 users
 
-| <u>uid</u> | ==userAccount== | passwordHash | userName       | *roleType*     | avatar     |
+| <u>uid</u> | ==userAccount== | passwordHash | userName       | roleType       | avatar     |
 | ---------- | --------------- | ------------ | -------------- | -------------- | ---------- |
 | 用户标号   | 用户账号        | 哈希后的密码 | 用户名         | 身份类型       | 头像url    |
 | **birth**  | **phone**       | **email**    | **createTime** | **updateTime** | **gender** |
@@ -18,21 +18,37 @@
 
 ***roleType*** 身份类型：其中0为系统管理员，1为面试官，2为应聘者
 
+***gender*** 用户性别：其中0为保密，1为男性，2为女性
+
 
 
 ##### 应聘者表 candidates
 
-| candId   | realName | education | university | major | applyType | deliPosition |
-| -------- | -------- | --------- | ---------- | ----- | --------- | ------------ |
-| 应聘编号 | 真实姓名 | 教育程度  | 毕业院校   | 专业  | 应聘类型  | 投递岗位     |
+| candId   | realName | education | university | major | applyType | deliPosition | userAccount |
+| -------- | -------- | --------- | ---------- | ----- | --------- | ------------ | ----------- |
+| 应聘编号 | 真实姓名 | 教育程度  | 毕业院校   | 专业  | 应聘类型  | 投递岗位     | 关联账号    |
+
+***education*** 教育程度：其中0为其他，1为普通本科，2为硕士，3为博士，4为博士后
+
+***applyType*** 应聘类型：其中0为校园招聘，1为社会招聘
 
 
 
-##### 面试官表 interviewers
+##### 面试官/系统管理员表 interviewers
 
-| interId    | businessGroup | department | rank | position |
-| ---------- | ------------- | ---------- | ---- | -------- |
-| 面试官编号 | 事业群        | 部门       | 职级 | 职位     |
+| interId    | businessGroup | department | rankLevel | position | userAccount |
+| ---------- | ------------- | ---------- | --------- | -------- | ----------- |
+| 面试官编号 | 事业群        | 部门       | 职级      | 职位     | 关联账号    |
+
+
+
+##### 工作岗位表 posts
+
+| postId       | postName | postDescription | postRequirement | postNote         | postLocation | postBusinessGroup |
+| ------------ | -------- | --------------- | --------------- | ---------------- | ------------ | ----------------- |
+| 工作岗位编号 | 岗位名称 | 岗位描述        | 岗位要求        | 加分项或注意事项 | 工作地点     | 招聘事业群        |
+
+
 
 
 

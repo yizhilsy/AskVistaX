@@ -33,4 +33,5 @@ build/
 .vscode/
 
 ### Project Configuration File ###
-./src/main/resources/application.yml
+src/main/resources/application.yml
+sample_askvistax.sql
