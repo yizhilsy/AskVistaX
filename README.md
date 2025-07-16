@@ -4,6 +4,8 @@
 
 [TOC]
 
+![askVistaX数据库架构设计及数据流图](./figures/askVistaX数据库架构设计及数据流图.png)
+
 ### 后端设计
 
 #### 数据库设计

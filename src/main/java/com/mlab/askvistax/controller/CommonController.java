@@ -263,7 +263,7 @@ public class CommonController {
     }
 
     /**
-     * 修改用户密码接口
+     * 修改用户密码接口 TODO 判断更新后的密码是否满足正则
      * @param params
      * @return Result.success() / Result.error()
      */
