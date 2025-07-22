@@ -46,18 +46,19 @@ public class CommonController {
 
     // 应聘者注册接口
     @PostMapping("/registerCandidate")
-    public Result registerCandidate(@RequestBody @Validated RegisterUser registerUser,
-                           @RequestBody @Validated RegisterCandidate registerCandidate) {
-        User existingUser = commonService.getUserByUserAccount(registerUser.getUserAccount());
+    public Result registerCandidate(@RequestBody @Validated RegisterCandidateUser registerCandidateUser) {
+        User existingUser = commonService.getUserByUserAccount(registerCandidateUser.getRegisterUser().getUserAccount());
         if (existingUser != null) {
-            log.info("账号名为: {}的账号已经被注册，注册失败!", registerUser.getUserAccount());
+            log.info("账号名为: {}的账号已经被注册，注册失败!", registerCandidateUser.getRegisterUser().getUserAccount());
             return Result.error("该账号已被注册！");
         }
-        else if (registerUser.getRoleType() != 2) {
-            log.info("账号名为: {}的注册失败！注册时未合法指定应聘者角色类型！", registerUser.getUserAccount());
+        else if (registerCandidateUser.getRegisterUser().getRoleType() != 2) {
+            log.info("账号名为: {}的注册失败！注册时未合法指定应聘者角色类型！", registerCandidateUser.getRegisterUser().getUserAccount());
             return Result.error("注册失败！请指定应聘者角色类型！");
         }
         else {
+            RegisterUser registerUser = registerCandidateUser.getRegisterUser();
+            RegisterCandidate registerCandidate = registerCandidateUser.getRegisterCandidate();
             // 注册账号主体信息
             commonService.addUser(registerUser);
             // 注册账号身份信息：应聘者表
@@ -70,18 +71,19 @@ public class CommonController {
 
     // 面试官注册接口
     @PostMapping("/registerInterviewer")
-    public Result registerInterviewer(@RequestBody @Validated RegisterUser registerUser,
-                                      @RequestBody @Validated RegisterInterviewer registerInterviewer) {
-        User existingUser = commonService.getUserByUserAccount(registerUser.getUserAccount());
+    public Result registerInterviewer(@RequestBody @Validated RegisterInterviewerUser registerInterviewerUser) {
+        User existingUser = commonService.getUserByUserAccount(registerInterviewerUser.getRegisterUser().getUserAccount());
         if (existingUser != null) {
-            log.info("账号名为: {}的账号已经被注册，注册失败!", registerUser.getUserAccount());
+            log.info("账号名为: {}的账号已经被注册，注册失败!", registerInterviewerUser.getRegisterUser().getUserAccount());
             return Result.error("该账号已被注册！");
         }
-        else if (registerUser.getRoleType() != 0 && registerUser.getRoleType() != 1) {
-            log.info("账号名为: {}的注册失败！注册时未合法指定公司内部角色类型！", registerUser.getUserAccount());
+        else if (registerInterviewerUser.getRegisterUser().getRoleType() != 0 && registerInterviewerUser.getRegisterUser().getRoleType() != 1) {
+            log.info("账号名为: {}的注册失败！注册时未合法指定公司内部角色类型！", registerInterviewerUser.getRegisterUser().getUserAccount());
             return Result.error("注册失败！请指定公司内部角色类型！");
         }
         else {
+            RegisterUser registerUser = registerInterviewerUser.getRegisterUser();
+            RegisterInterviewer registerInterviewer = registerInterviewerUser.getRegisterInterviewer();
             // 注册账号主体信息
             commonService.addUser(registerUser);
             // 注册账号身份信息：应聘者表

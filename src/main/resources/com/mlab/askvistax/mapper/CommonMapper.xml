@@ -36,8 +36,8 @@
     </insert>
 
     <insert id="addCandidate">
-        insert into candidates(realname, education, university, major, applytype, useraccount)
-        values(#{realname}, #{education}, #{university}, #{major}, #{applytype}, #{useraccount})
+        insert into candidates(realName, education, university, major, applyType, userAccount)
+        values(#{realName}, #{education}, #{university}, #{major}, #{applyType}, #{userAccount})
     </insert>
 
     <insert id="addInterviewer">

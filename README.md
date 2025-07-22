@@ -8,6 +8,8 @@
 
 ### 后端设计
 
+接口文档详见：[问见未来askVistaX PostMan接口文档](https://documenter.getpostman.com/view/32022529/2sB34mhxzq)（注：持续开发中）
+
 #### 数据库设计
 
 ##### 用户表 users
@@ -26,9 +28,9 @@
 
 ##### 应聘者表 candidates
 
-| candId   | realName | education | university | major | applyType | deliPosition | userAccount |
-| -------- | -------- | --------- | ---------- | ----- | --------- | ------------ | ----------- |
-| 应聘编号 | 真实姓名 | 教育程度  | 毕业院校   | 专业  | 应聘类型  | 投递岗位     | 关联账号    |
+| candId   | realName | education | university | major | applyType | userAccount |
+| -------- | -------- | --------- | ---------- | ----- | --------- | ----------- |
+| 应聘编号 | 真实姓名 | 教育程度  | 毕业院校   | 专业  | 应聘类型  | 关联账号    |
 
 ***education*** 教育程度：其中0为其他，1为普通本科，2为硕士，3为博士，4为博士后
 
@@ -38,9 +40,9 @@
 
 ##### 面试官/系统管理员表 interviewers
 
-| interId    | businessGroup | department | rankLevel | position | userAccount |
-| ---------- | ------------- | ---------- | --------- | -------- | ----------- |
-| 面试官编号 | 事业群        | 部门       | 职级      | 职位     | 关联账号    |
+| interId    | realName | businessGroup | department | rankLevel | position | userAccount |
+| ---------- | -------- | ------------- | ---------- | --------- | -------- | ----------- |
+| 面试官编号 | 真实姓名 | 事业群        | 部门       | 职级      | 职位     | 关联账号    |
 
 
 

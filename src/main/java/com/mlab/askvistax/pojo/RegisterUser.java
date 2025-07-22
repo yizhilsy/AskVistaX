@@ -23,7 +23,7 @@ public class RegisterUser {
     private String userName;
     @NotNull
     private Integer roleType;
-    @NotEmpty
+    @NotNull
     private String avatar;
     @NotNull
     @JsonFormat(pattern = "yyyy-MM-dd")
