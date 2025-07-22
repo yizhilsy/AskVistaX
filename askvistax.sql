@@ -29,12 +29,13 @@ create table candidates
     university      varchar(45) not null comment '毕业院校',
     major           varchar(45) not null comment '专业',
     applyType       tinyint not null comment '应聘类型',
-    delPosition     varchar(45) not null comment '投递岗位',
     userAccount     varchar(30) not null comment '关联的用户账号',
     foreign key (userAccount) references users(userAccount) on delete cascade on update cascade
 ) comment '应聘者表';
 
 # alter table candidates modify delPosition varchar(45) not null comment '投递岗位';
+# alter table candidates drop column delPosition;
+
 
 create table interviewers
 (
@@ -48,3 +49,37 @@ create table interviewers
     foreign key (userAccount) references users(userAccount) on delete cascade on update cascade
 ) comment '面试官表';
 
+# 更新应聘者表或面试官表时同步更新用户表中updateTime字段的trigger
+DELIMITER //
+create trigger Synchronous_Update_Users_UpdateTime_After_Candidates_Update
+    after update on candidates
+    for each row
+begin
+    update users
+    set updateTime = NOW()
+    where users.userAccount = new.userAccount;
+end //
+DELIMITER ;
+
+DELIMITER //
+create trigger Synchronous_Update_Users_UpdateTime_After_Interviewers_Update
+    after update on interviewers
+    for each row
+begin
+    update users
+    set updateTime = NOW()
+    where users.userAccount = new.userAccount;
+end //
+DELIMITER ;
+
+# 工作岗位表
+create table posts
+(
+    postId int unsigned auto_increment primary key comment '工作岗位编号',
+    postName varchar(45) not null comment '岗位名称',
+    postDescription varchar(512) not null comment '岗位描述',
+    postRequirement varchar(512) not null comment '岗位要求',
+    postNote varchar(512) not null comment '加分项或注意事项',
+    postLocation varchar(45) not null comment '工作地点',
+    postBusinessGroup varchar(30) not null comment '招聘事业群'
+) comment '工作岗位表';

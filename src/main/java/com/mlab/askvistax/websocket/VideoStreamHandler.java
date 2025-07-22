@@ -1,5 +1,6 @@
 package com.mlab.askvistax.websocket;
 
+import com.mlab.askvistax.utils.CommonConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -10,6 +11,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -19,6 +21,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class VideoStreamHandler extends AbstractWebSocketHandler {
     // 保存每个连接对应的文件写入流，线程安全的哈希表容器
     private final Map<String, FileOutputStream> sessionOutputMap = new ConcurrentHashMap<>();
+
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        String sessionId = session.getId();
+        URI uri = session.getUri();
+        Map<String, Object> attributes = session.getAttributes();
+        Map<String, Object> claims = (Map<String, Object>) attributes.get("claims");
+        log.info("session连接: {}建立成功, URI: {}, connect_userAccount: {}, connect_userName: {}, connect_roleType: {}", sessionId, uri, claims.get("userAccount"), claims.get("userName"), CommonConstants.roleTypeMap.get(claims.get("roleType")));
+    }
 
     @Override
     public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws IOException {
@@ -74,5 +85,6 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
             }
         }
     }
+
 
 }
