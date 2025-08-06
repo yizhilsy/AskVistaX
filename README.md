@@ -48,11 +48,11 @@
 
 ##### 工作岗位表 posts
 
-| postId       | postName | postDescription | postRequirement | postNote         | postLocation | postBusinessGroup |
-| ------------ | -------- | --------------- | --------------- | ---------------- | ------------ | ----------------- |
-| 工作岗位编号 | 岗位名称 | 岗位描述        | 岗位要求        | 加分项或注意事项 | 工作地点     | 招聘事业群        |
+| postId       | postName | postDescription | postRequirement | postNote         | postLocation | postBusinessGroup | postType |
+| ------------ | -------- | --------------- | --------------- | ---------------- | ------------ | ----------------- | -------- |
+| 工作岗位编号 | 岗位名称 | 岗位描述        | 岗位要求        | 加分项或注意事项 | 工作地点     | 招聘事业群        | 招聘类型 |
 
-
+***postType*** 招聘类型：其中0为实习生，1为应届生， 2为社招生
 
 
 

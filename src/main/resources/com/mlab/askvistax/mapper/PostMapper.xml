@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mlab.askvistax.mapper.PostMapper">
+    <select id="listPosts" resultType="com.mlab.askvistax.pojo.Post">
+        select postId, postName, postDescription, postRequirement, postNote, postLocation, postBusinessGroup, postType
+        from posts
+        <where>
+            <if test="postName != null and postName != ''">
+                postName like concat('%', #{postName}, '%')
+            </if>
+
+            <if test="postLocation != null and postLocation.size() > 0">
+                and (
+                    <foreach collection="postLocation" item="location" separator="or">
+                        postLocation like concat('%', #{location}, '%')
+                    </foreach>
+                )
+            </if>
+
+            <if test="postBusinessGroup != null and postBusinessGroup.size() > 0">
+                and (
+                    <foreach collection="postBusinessGroup" item="businessGroup" separator="or">
+                        postBusinessGroup like concat('%', #{businessGroup}, '%')
+                    </foreach>
+                )
+            </if>
+
+            <if test="postType != null and postType.size() > 0">
+                and postType in
+                <foreach collection="postType" item="posttype" open="(" separator="," close=")">
+                    #{posttype}
+                </foreach>
+            </if>
+        </where>
+        order by postId asc
+    </select>
+
+
+
+</mapper>

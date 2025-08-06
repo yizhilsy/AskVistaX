@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
+import java.net.URI;
 import java.util.Map;
 
 @Component
@@ -25,9 +26,20 @@ public class WsHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
         Map<String, Object> claims;
-        // token令牌验证
-        String token = request.getHeaders().getFirst("Authorization");
-        // 验证token
+        // token令牌验证[URL后加参数的方式]
+        URI uri = request.getURI();
+        String query = uri.getQuery();
+        String token = null;
+        if (query != null && query.startsWith("Authorization=")) {
+            token = query.split("=")[1];
+        }
+        else {
+            log.info("WsInterceptor: Unable to obtain the token included in the request");
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);    // 设置HTTP响应状态码为未授权
+            return false;
+        }
+
+        // 验证取出的token
         try {
             // 从redis中获取有效期内的相同token
             ValueOperations<String, String> operations = stringRedisTemplate.opsForValue();

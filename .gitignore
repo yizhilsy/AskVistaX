@@ -35,3 +35,6 @@ build/
 ### Project Configuration File ###
 src/main/resources/application.yml
 sample_askvistax.sql
+
+### Test Video Folder ###
+testVideos/
