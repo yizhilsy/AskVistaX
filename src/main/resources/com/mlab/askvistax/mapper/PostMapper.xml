@@ -4,7 +4,7 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.mlab.askvistax.mapper.PostMapper">
     <select id="listPosts" resultType="com.mlab.askvistax.pojo.Post">
-        select postId, postName, postDescription, postRequirement, postNote, postLocation, postBusinessGroup, postType
+        select postId, postName, postDescription, postRequirement, postNote, postLocation, postBusinessGroup, postType, postCategory
         from posts
         <where>
             <if test="postName != null and postName != ''">
@@ -33,10 +33,22 @@
                     #{posttype}
                 </foreach>
             </if>
+
+            <if test="postCategory != null and postCategory.size() > 0">
+                and postCategory in
+                <foreach collection="postCategory" item="postcategory" open="(" separator="," close=")">
+                    #{postcategory}
+                </foreach>
+            </if>
         </where>
         order by postId asc
     </select>
 
+    <select id="getPostByPostId" resultType="com.mlab.askvistax.pojo.Post">
+        select postId, postName, postDescription, postRequirement, postNote, postLocation, postBusinessGroup, postType, postCategory
+        from posts
+        where postId = #{postId}
+    </select>
 
 
 </mapper>

@@ -17,11 +17,17 @@ public class PostServiceImpl implements PostService {
     private PostMapper postMapper;
 
     @Override
-    public PageBean listPosts(Integer page, Integer pageSize, String postName, List<String> postLocation, List<String> postBusinessGroup, List<Integer> postType) {
+    public PageBean listPosts(Integer page, Integer pageSize, String postName, List<String> postLocation, List<String> postBusinessGroup,
+                              List<Integer> postType, List<Integer> postCategory) {
         PageHelper.startPage(page, pageSize);
-        List<Post> postList = postMapper.listPosts(postName, postLocation, postBusinessGroup, postType);
+        List<Post> postList = postMapper.listPosts(postName, postLocation, postBusinessGroup, postType, postCategory);
         Page<Post> p = (Page<Post>) postList;
         PageBean pageBean = new PageBean(p.getTotal(), p.getResult());
         return pageBean;
+    }
+
+    @Override
+    public Post getPostByPostId(Integer postId) {
+        return postMapper.getPostByPostId(postId);
     }
 }

@@ -16,4 +16,5 @@ public class Post {
     private String postLocation;
     private String postBusinessGroup;
     private Integer postType;
+    private Integer postCategory;
 }

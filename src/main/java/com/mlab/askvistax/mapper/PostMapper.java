@@ -7,5 +7,8 @@ import java.util.List;
 
 @Mapper
 public interface PostMapper {
-    List<Post> listPosts(String postName, List<String> postLocation, List<String> postBusinessGroup, List<Integer> postType);
+    List<Post> listPosts(String postName, List<String> postLocation, List<String> postBusinessGroup,
+                         List<Integer> postType, List<Integer> postCategory);
+
+    Post getPostByPostId(Integer postId);
 }
