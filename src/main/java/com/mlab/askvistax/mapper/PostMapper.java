@@ -1,5 +1,6 @@
 package com.mlab.askvistax.mapper;
 
+import com.mlab.askvistax.pojo.DeliveryPost;
 import com.mlab.askvistax.pojo.Post;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -11,4 +12,8 @@ public interface PostMapper {
                          List<Integer> postType, List<Integer> postCategory);
 
     Post getPostByPostId(Integer postId);
+
+    void deliveryPost(String uid, Integer postId, String resumeUrl);
+
+    List<DeliveryPost> llMyDeliveryPosts(String uid);
 }

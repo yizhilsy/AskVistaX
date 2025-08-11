@@ -50,5 +50,16 @@
         where postId = #{postId}
     </select>
 
+    <insert id="deliveryPost">
+        insert into interviews(uid, postId, resumeUrl)
+        values (#{uid}, #{postId}, #{resumeUrl})
+    </insert>
+
+    <select id="llMyDeliveryPosts" resultType="com.mlab.askvistax.pojo.DeliveryPost">
+        select interviews.interviewId, posts.postName, posts.postLocation, posts.postBusinessGroup, posts.postType, posts.postCategory, interviews.resumeUrl
+        from interviews inner join posts on interviews.postId = posts.postId
+        where interviews.uid = #{uid}
+    </select>
+
 
 </mapper>

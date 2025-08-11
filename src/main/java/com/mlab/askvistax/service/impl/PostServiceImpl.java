@@ -3,6 +3,7 @@ package com.mlab.askvistax.service.impl;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.mlab.askvistax.mapper.PostMapper;
+import com.mlab.askvistax.pojo.DeliveryPost;
 import com.mlab.askvistax.pojo.PageBean;
 import com.mlab.askvistax.pojo.Post;
 import com.mlab.askvistax.service.PostService;
@@ -29,5 +30,14 @@ public class PostServiceImpl implements PostService {
     @Override
     public Post getPostByPostId(Integer postId) {
         return postMapper.getPostByPostId(postId);
+    }
+
+    public void deliveryPost(String uid, Integer postId, String resumeUrl) {
+        postMapper.deliveryPost(uid, postId, resumeUrl);
+    }
+
+    @Override
+    public List<DeliveryPost> llMyDeliveryPosts(String uid) {
+        return postMapper.llMyDeliveryPosts(uid);
     }
 }

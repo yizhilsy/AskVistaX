@@ -1,5 +1,6 @@
 package com.mlab.askvistax.service;
 
+import com.mlab.askvistax.pojo.DeliveryPost;
 import com.mlab.askvistax.pojo.PageBean;
 import com.mlab.askvistax.pojo.Post;
 
@@ -10,4 +11,8 @@ public interface PostService {
                        List<Integer> postType, List<Integer> postCategory);
 
     Post getPostByPostId(Integer postId);
+
+    void deliveryPost(String uid, Integer postId, String url);
+
+    List<DeliveryPost> llMyDeliveryPosts(String uid);
 }

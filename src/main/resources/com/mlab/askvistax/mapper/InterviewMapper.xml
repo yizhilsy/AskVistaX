@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mlab.askvistax.mapper.InterviewMapper">
+
+    <select id="getInterviewById" resultType="com.mlab.askvistax.pojo.Interview">
+        select interviewId, uid, postId, startTime, endTime, videoUrl, resumeUrl
+        from interviews
+        where interviewId = #{interviewId}
+    </select>
+
+
+</mapper>

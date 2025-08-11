@@ -15,7 +15,11 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -29,11 +33,17 @@ public class WsHandshakeInterceptor implements HandshakeInterceptor {
         // token令牌验证[URL后加参数的方式]
         URI uri = request.getURI();
         String query = uri.getQuery();
-        String token = null;
-        if (query != null && query.startsWith("Authorization=")) {
-            token = query.split("=")[1];
-        }
-        else {
+
+        Map<String, String> params = Arrays.stream(query.split("&"))
+                .map(s -> s.split("="))
+                .collect(Collectors.toMap(a -> a[0], a -> URLDecoder.decode(a[1], StandardCharsets.UTF_8)));
+
+        String token = params.get("Authorization");
+        String interviewIdStr = params.get("interviewId");
+        Integer interviewId = Integer.valueOf(interviewIdStr);
+        log.info("Token: {}, InterviewId: {}", token, interviewId);
+
+        if (token == null) {
             log.info("WsInterceptor: Unable to obtain the token included in the request");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);    // 设置HTTP响应状态码为未授权
             return false;
@@ -51,6 +61,7 @@ public class WsHandshakeInterceptor implements HandshakeInterceptor {
                 claims = JwtUtil.parseToken(token); // 反序列化，解析token中的业务数据
                 // 将反序列化后的claims存入当前连接session的attributes中
                 attributes.put("claims", claims);
+                attributes.put("interviewId", interviewId);  // 将面试ID存入session的attributes中
             }
         } catch (Exception e) {
             log.info("WsInterceptor: The Token Has Expired or is Invalid");
