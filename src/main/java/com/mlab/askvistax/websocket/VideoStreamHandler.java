@@ -15,6 +15,7 @@ import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.bytedeco.javacv.FFmpegLogCallback;
 import org.bytedeco.javacv.Frame;
+import org.bytedeco.opencv.presets.opencv_core;
 import org.opencv.video.Video;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -25,10 +26,7 @@ import org.springframework.web.socket.handler.BinaryWebSocketHandler;
 import javax.swing.text.View;
 import java.io.*;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 // TODO 实现心跳检测超时断连等意外情况
@@ -43,6 +41,8 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     private final Map<String, BlockingQueue<VideoPacket>> sessionFileQueueMap = new ConcurrentHashMap<>();
     // 每个sstHandler线程对应的BlockingQueue
     private final Map<String, BlockingQueue<Frame>> sessionAudioQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<String>> sessionNextSignalQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<String>> sessionSttResultQueueMap = new ConcurrentHashMap<>();
 
     private final ExecutorService processorPool = Executors.newCachedThreadPool();
     private final ExecutorService aiInterviewPool = Executors.newCachedThreadPool();
@@ -53,6 +53,8 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     private HttpClientUtil httpClientUtil;
     @Autowired
     private AudioUtil audioUtil;
+    @Autowired
+    private RTASRTest rtasrTest;
 
 
     @Override
@@ -81,9 +83,12 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         initProcess(sessionId);
 
         Integer interviewId = (Integer) attributes.get("interviewId");
+        BlockingQueue<String> nextSignalQueue = sessionNextSignalQueueMap.get(sessionId);
+        BlockingQueue<String> sttResultQueue = sessionSttResultQueueMap.get(sessionId);
+
 
         // AI面试线程池
-//        aiInterviewPool.submit(() -> aiInterview(session, interviewId));
+//         aiInterviewPool.submit(() -> aiInterview(session, interviewId, nextSignalQueue));
     }
 
     // 视频流接收函数
@@ -109,6 +114,10 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
                 fileQueue.offer(VideoPacket.poisonPill());
                 session.close(CloseStatus.NORMAL.withReason("Transmission complete"));
             }
+            else if ("__NEXT__".equals(payload)) {
+                BlockingQueue<String> nextSignalQueue = sessionNextSignalQueueMap.get(session.getId());
+                nextSignalQueue.offer(payload);
+            }
         }
         else {
             log.warn("收到不支持的消息类型，关闭连接");
@@ -117,7 +126,7 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     }
 
     // AI面试线程
-    public void aiInterview(WebSocketSession session, Integer interviewId) {
+    public void aiInterview(WebSocketSession session, Integer interviewId, BlockingQueue<String> nextSignalQueue, BlockingQueue<String> sttResultQueue) {
         String sessionId = session.getId();
         String baseDir = "reviewRecord";
         log.info("AI面试线程创建，sessionId: {}, interviewId: {}", sessionId, interviewId);
@@ -159,18 +168,20 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
                 try (FileOutputStream fos = new FileOutputStream(mp3File)) {
                     fos.write(mp3Bytes);
                     session.sendMessage(new BinaryMessage(mp3Bytes));
-                    Thread.sleep(5000);
                 }
+                // 阻塞，等待前端发送操作码__NEXT__
+                String signal = nextSignalQueue.take();
+                if (!"__NEXT__".equals(signal)) {
+                    log.warn("等待用户操作码__NEXT__异常，sessionId={}", session.getId());
+                    break;
+                }
+                log.info("收到了__NEXT__操作码");
             } catch (Exception e) {
                 log.error("异常", e);
             }
 
         }
-
-
-
     }
-
 
     // 初始化函数
     private void initProcess(String sessionId) {
@@ -178,10 +189,16 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         BlockingQueue<VideoPacket> queue = new LinkedBlockingQueue<>();
         BlockingQueue<VideoPacket> fileQueue = new LinkedBlockingQueue<>();
         BlockingQueue<Frame> audioQueue = new LinkedBlockingQueue<>();
+        BlockingQueue<String> sttResultQueue = new LinkedBlockingQueue<>();
+        BlockingQueue<String> nextSignalQueue = new ArrayBlockingQueue<>(1);
+
         // 存入对应的map
         sessionQueueMap.put(sessionId, queue);
         sessionFileQueueMap.put(sessionId, fileQueue);
         sessionAudioQueueMap.put(sessionId, audioQueue);
+        sessionSttResultQueueMap.put(sessionId, sttResultQueue);
+        sessionNextSignalQueueMap.put(sessionId, nextSignalQueue);
+
         // 在线程池中启动sessionId对应的处理线程
         processorPool.submit(() -> processMessage(sessionId, queue, fileQueue, audioQueue));
     }
@@ -240,71 +257,56 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         }
     }
 
-    // 语音转文本线程
-    private void sttHandler(String sessionId, BlockingQueue<Frame> audioQueue, int sampleRate, int channels) {
-        log.info("语音转文本线程启动，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
-        List<Frame> frameBuffer = new ArrayList<>();
-        long chunkStartTimestamp = -1; // 记录第一个音频帧的时间戳，单位微秒
+    // 实时语音转文本线程
+    private void sstRealTimeTranser(String sessionId, BlockingQueue<Frame> audioQueue) {
+        log.info("实时语音转文本线程启动，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
+        ByteArrayOutputStream sendBuf = new ByteArrayOutputStream();
+        BlockingQueue<String> sttResultQueue = sessionSttResultQueueMap.get(sessionId);
+        try {
+            rtasrTest.start(sttResultQueue);
+        } catch (Exception e) {
+            log.error("连接xfyun websocket链接失败");
+        }
 
         try {
             while (true) {
                 Frame audioFrame = audioQueue.poll(16, TimeUnit.SECONDS);
                 if (audioFrame == null) {
-                    log.info("sstHandler线程超时无音频数据，结束，sessionId={}", sessionId);
+                    log.info("sstRealTimeTranser线程超时无音频数据，结束，sessionId={}", sessionId);
                     break;
                 }
                 else if (audioFrame == CommonConstants.POISON_PILL) {
-                    log.info("sstHandler线程收到结束信号，结束，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
+                    log.info("sstRealTimeTranser线程收到结束信号，结束，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
                     break;
                 }
 
-                frameBuffer.add(audioFrame.clone()); // 保存副本
+                byte[] pcmData = audioUtil.frameToPCM(audioFrame);
+                sendBuf.write(pcmData);
+                // 每 1280 字节（40ms）发一次
+                while (sendBuf.size() >= CommonConstants.FRAME_BYTES) {
+                    byte[] all = sendBuf.toByteArray();
+                    byte[] toSend = Arrays.copyOfRange(all, 0, CommonConstants.FRAME_BYTES);
+                    rtasrTest.sendPCMData(toSend);
 
-                // 第一次记录时间戳
-                if (chunkStartTimestamp < 0) {
-                    chunkStartTimestamp = audioFrame.timestamp;
-                }
-
-                // 判断是否已累计超过3秒 (3,000,000 微秒)
-                long durationMicros = audioFrame.timestamp - chunkStartTimestamp;
-                if (durationMicros >= 3_000_000) {
-                    log.info("sstHandler线程处理3秒音频，sessionId={}, durationMicros={}, time: {}", sessionId, durationMicros, System.currentTimeMillis());
-                    speechToText(frameBuffer, sampleRate, channels);
-                    frameBuffer.clear();
-                    chunkStartTimestamp = -1;
+                    // 移除已发送部分
+                    sendBuf.reset();
+                    if (all.length > CommonConstants.FRAME_BYTES) {
+                        sendBuf.write(all, CommonConstants.FRAME_BYTES, all.length - CommonConstants.FRAME_BYTES);
+                    }
                 }
             }
-
-            if (!frameBuffer.isEmpty()) {
-                log.info("sstHandler线程处理剩余音频，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
-                speechToText(frameBuffer, sampleRate, channels);
-            }
-        } catch (InterruptedException e) {
-            log.error("sstHandler线程被中断，sessionId={}", sessionId, e);
-        }
-        log.info("语音转文本线程结束");
-
-    }
-
-    // 语音转文本调用接口
-    private void speechToText(List<Frame> audioFrames, int sampleRate, int channels) {
-        try {
-            // 将多个 Frame 合并成一个 wav 文件
-            File audioFile = audioUtil.convertFramesToFile(audioFrames, sampleRate, channels);
-
-            Map<String, String> headers = new HashMap<>();
-            Map<String, String> formFields = new HashMap<>();
-
-            JsonNode jsonResponse = httpClientUtil.postAudioFile(CommonConstants.sttUrl, audioFile, headers, formFields);
-
-            if (jsonResponse != null) {
-                String text = jsonResponse.path("data").path("full_text").asText();
-                System.out.println("识别结果：" + text);
+            // 发送剩余（如果有）
+            if (sendBuf.size() > 0) {
+                rtasrTest.sendPCMData(sendBuf.toByteArray());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("sstRealTimeTranser线程被中断，sessionId={}", sessionId, e);
         }
+        rtasrTest.shutdown();
+        log.info("实时语音转文本线程结束");
     }
+
+
 
     // 保存视频流文件函数
     private void videoSaver(String sessionId, BlockingQueue<VideoPacket> fileQueue, FileOutputStream fos) {
@@ -344,11 +346,18 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
             int audioChannels = grabber.getAudioChannels();
 
             // 启动语音转文本线程sstHandler
-            Thread sttHandlerThread = new Thread(
-                    () -> sttHandler(sessionId, audioQueue, sampleRate, audioChannels),
-                    "sttHandler-" + sessionId
+//            Thread sttHandlerThread = new Thread(
+//                    () -> sttHandler(sessionId, audioQueue, sampleRate, audioChannels),
+//                    "sttHandler-" + sessionId
+//            );
+//            sttHandlerThread.start();
+
+            // 启动实时语音转文本线程sstRealTimeTranser
+            Thread sstRealTimeTranserThread = new Thread(
+                    () -> sstRealTimeTranser(sessionId, audioQueue),
+                    "sstRealTimeTranser-" + sessionId
             );
-            sttHandlerThread.start();
+            sstRealTimeTranserThread.start();
 
             // 初始化录音器，设置参数与抓取器一致
             String audioOutputPath = "audio_" + sessionId + "_" + System.currentTimeMillis() + ".wav";
@@ -378,11 +387,111 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
             recorder.release();
             grabber.stop();
             audioQueue.offer(CommonConstants.POISON_PILL); // 发送结束信号给语音转文本线程
-            sttHandlerThread.join();
+//            sttHandlerThread.join();
+            sstRealTimeTranserThread.join();
         } catch (Exception e) {
             log.error("解码线程异常 sessionId: {}", sessionId, e);
         }
     }
+
+    // TODO 弃用的一些实现
+    // 语音转文本线程
+//    private void sttHandler(String sessionId, BlockingQueue<Frame> audioQueue, int sampleRate, int channels) {
+//        log.info("语音转文本线程启动，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
+//        List<Frame> frameBuffer = new ArrayList<>();
+//        long chunkStartTimestamp = -1; // 记录第一个音频帧的时间戳，单位微秒
+//        long lastVoiceTimestamp = -1;   // 最近一个有声帧时间戳，单位微秒
+//        final long silenceThresholdMicros = 1_000_000;  // 1秒静音阈值，单位微秒
+//        final long defaultChunkDurationMicros = 5_000_000; // 默认5秒切分，单位微秒
+//
+//        try {
+//            while (true) {
+//                Frame audioFrame = audioQueue.poll(16, TimeUnit.SECONDS);
+//                if (audioFrame == null) {
+//                    log.info("sstHandler线程超时无音频数据，结束，sessionId={}", sessionId);
+//                    break;
+//                }
+//                else if (audioFrame == CommonConstants.POISON_PILL) {
+//                    log.info("sstHandler线程收到结束信号，结束，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
+//                    break;
+//                }
+//
+//                if (chunkStartTimestamp < 0) {
+//                    chunkStartTimestamp = audioFrame.timestamp;
+//                    lastVoiceTimestamp = audioFrame.timestamp;
+//                }
+//
+//                frameBuffer.add(audioFrame.clone());
+//
+//                boolean isSilent = audioUtil.isSilentFrame(audioFrame);
+//                if (!isSilent) {    // 非静音数据更新最近有声时间戳
+//                    lastVoiceTimestamp = audioFrame.timestamp;
+//                }
+//
+//                // 判断是否累计静音超过阈值
+//                long silenceDuration = audioFrame.timestamp - lastVoiceTimestamp;
+//                if (silenceDuration >= silenceThresholdMicros && !frameBuffer.isEmpty()) {
+//                    // 超过静音阈值，切分并处理之前的音频块
+//                    log.info("sstHandler检测到静音超过阈值，处理音频，sessionId={}, silenceDurationMicros={}", sessionId, silenceDuration);
+//                    if (audioUtil.hasMeaningfulAudioEnergy(frameBuffer)) {
+//                        List<Frame> toSTTProcess = audioUtil.cloneFrameBuffer(frameBuffer);
+//                        speechToTextPool.submit(() -> speechToText(toSTTProcess, sampleRate, channels));
+//                    } else {
+//                        log.info("sstHandler检测到静音，缓冲区无有效音频，跳过语音识别，sessionId={}", sessionId);
+//                    }
+//                    frameBuffer.clear();
+//                    chunkStartTimestamp = -1;
+//                    lastVoiceTimestamp = -1;
+//                }
+//                else {
+//                    long durationMicros = audioFrame.timestamp - chunkStartTimestamp;
+//                    if (durationMicros >= defaultChunkDurationMicros) { // 若大于等于默认10秒
+//                        log.info("sstHandler线程处理5秒音频，sessionId={}, durationMicros={}", sessionId, durationMicros);
+//                        List<Frame> toSTTProcess = audioUtil.cloneFrameBuffer(frameBuffer);
+//                        speechToTextPool.submit(() -> speechToText(toSTTProcess, sampleRate, channels));
+//                        frameBuffer.clear();
+//                        chunkStartTimestamp = -1;
+//                        lastVoiceTimestamp = -1;
+//                    }
+//                }
+//            }
+//
+//            if (!frameBuffer.isEmpty()) {
+//                log.info("sstHandler线程处理剩余音频，sessionId={}, time: {}", sessionId, System.currentTimeMillis());
+//                if (audioUtil.hasMeaningfulAudioEnergy(frameBuffer)) {
+//                    List<Frame> toSTTProcess = audioUtil.cloneFrameBuffer(frameBuffer);
+//                    speechToTextPool.submit(() -> speechToText(toSTTProcess, sampleRate, channels));
+//                } else {
+//                    log.info("sstHandler检测到静音，缓冲区无有效音频，跳过语音识别，sessionId={}", sessionId);
+//                }
+//            }
+//        } catch (InterruptedException e) {
+//            log.error("sstHandler线程被中断，sessionId={}", sessionId, e);
+//        }
+//        log.info("语音转文本线程结束");
+//    }
+//
+//    // 语音转文本调用接口
+//    private void speechToText(List<Frame> audioFrames, int sampleRate, int channels) {
+//        try {
+//            // 将多个 Frame 合并成一个 wav 文件
+//            File audioFile = audioUtil.convertFramesToFile(audioFrames, sampleRate, channels);
+//
+//            Map<String, String> headers = new HashMap<>();
+//            Map<String, String> formFields = new HashMap<>();
+//
+//            JsonNode jsonResponse = httpClientUtil.postAudioFile(CommonConstants.sttUrl, audioFile, headers, formFields);
+//
+//            if (jsonResponse != null) {
+//                String text = jsonResponse.path("data").path("full_text").asText();
+//                log.info("识别结果: {}", text);
+//            }
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//        }
+//    }
+
+
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {

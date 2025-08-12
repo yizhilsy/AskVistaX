@@ -8,6 +8,7 @@ class AskVistaXApplicationTests {
 
     @Test
     void contextLoads() {
+
     }
 
 }

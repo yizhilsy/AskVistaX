@@ -28,14 +28,13 @@ create table candidates
     education       tinyint unsigned not null comment '教育程度',
     university      varchar(45) not null comment '毕业院校',
     major           varchar(45) not null comment '专业',
-    applyType       tinyint not null comment '应聘类型',
+    applyType       tinyint unsigned not null default 0 comment '应聘类型',
     userAccount     varchar(30) not null comment '关联的用户账号',
     foreign key (userAccount) references users(userAccount) on delete cascade on update cascade
 ) comment '应聘者表';
 
 # alter table candidates modify delPosition varchar(45) not null comment '投递岗位';
 # alter table candidates drop column delPosition;
-
 
 create table interviewers
 (
@@ -81,5 +80,22 @@ create table posts
     postRequirement varchar(512) not null comment '岗位要求',
     postNote varchar(512) not null comment '加分项或注意事项',
     postLocation varchar(45) not null comment '工作地点',
-    postBusinessGroup varchar(30) not null comment '招聘事业群'
+    postBusinessGroup varchar(30) not null comment '招聘事业群',
+    postType tinyint unsigned not null default 0 comment '招聘类型',
+    postCategory tinyint unsigned not null default 0 comment '岗位类别'
 ) comment '工作岗位表';
+
+
+# 面试表（用户-工作岗位中间表）
+create table interviews
+(
+    interviewId int unsigned auto_increment primary key comment '面试过程编号',
+    uid char(36) not null comment '用户标号uid',
+    postId int unsigned  not null comment '工作岗位编号',
+    startTime dateTime comment '面试开始时间',
+    endTime dateTime comment '面试结束时间',
+    videoUrl varchar(300) comment '面试视频url',
+    resumeUrl varchar(300) comment '简历文件url',
+    foreign key (uid) references users(uid) on delete cascade on update cascade,
+    foreign key (postId) references posts(postId) on delete cascade on update cascade
+) comment '面试过程表';
