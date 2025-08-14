@@ -13,6 +13,7 @@ import org.java_websocket.drafts.Draft;
 import org.java_websocket.handshake.ServerHandshake;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.TextMessage;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
@@ -25,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Objects;
@@ -199,11 +201,13 @@ public class RTASRTest {
         private BlockingQueue<String> sttResultQueue;
 
 
-        public MyWebSocketClient(URI serverUri, Draft protocolDraft, CountDownLatch handshakeSuccess, CountDownLatch connectClose, BlockingQueue<String> sttResultQueue) {
+        public MyWebSocketClient(URI serverUri, Draft protocolDraft, CountDownLatch handshakeSuccess, CountDownLatch connectClose,
+                                 BlockingQueue<String> sttResultQueue) {
             super(serverUri, protocolDraft);
             this.handshakeSuccess = handshakeSuccess;
             this.connectClose = connectClose;
             this.sttResultQueue = sttResultQueue;
+
             if(serverUri.toString().contains("wss")){
                 trustAllHosts(this);
             }
@@ -225,13 +229,33 @@ public class RTASRTest {
             } else if (Objects.equals("result", action)) {
                 // 转写结果
                 STTTranscription sttTranscription = getContent(msgObj.getString("data"));
-                log.info("xfyun rtasr text: {}, isFinal: {}", sttTranscription.getText(), sttTranscription.isFinal());
+
+//                try {
+//                    if (conCurrentSession != null && conCurrentSession.isOpen()) {
+//                        log.info("ws服务端正常！");
+//                    }
+//                    log.info("xfyun send sessionId: {}", conCurrentSession.getId());
+//                    JSONObject sttTranscriptionJson = new JSONObject();
+//                    sttTranscriptionJson.put("type", "transcript");
+//                    sttTranscriptionJson.put("content", sttTranscription.getText());
+//                    if (sttTranscription.isFinal()) {
+//                        conCurrentSession.sendMessage(new TextMessage(sttTranscriptionJson.toJSONString()));
+//                    }
+//                    log.info("session发送数据: {}", sttTranscriptionJson.toJSONString());
+//                } catch (Exception e) {
+//                    log.error("websocket发送消息失败", e);
+//                }
+
+
+//                log.info("xfyun rtasr text: {}, isFinal: {}", sttTranscription.getText(), sttTranscription.isFinal());
+
                 // 判断此时是否是句子的末尾，非末尾不放入队列
                 if (sttTranscription.isFinal()) {
                     // 将结果放入阻塞队列中，供其他线程读取
                     try {
-                        sttResultQueue.put(sttTranscription.getText()); // put 会阻塞直到队列有空间
-                    } catch (InterruptedException e) {
+//                        log.info("xfyun rtasr 将转录文本放入sttResultQueue队列");
+                        sttResultQueue.offer(sttTranscription.getText());
+                    } catch (Exception e) {
                         Thread.currentThread().interrupt();
                         log.error("放入sttResultQueue队列时被中断", e);
                     }
@@ -252,7 +276,12 @@ public class RTASRTest {
 
         @Override
         public void onClose(int arg0, String arg1, boolean arg2) {
-            System.out.println(getCurrentTimeStr() + "\t链接关闭");
+            System.out.println(getCurrentTimeStr() + "\tXfYun链接关闭");
+            try {
+                sttResultQueue.offer(CommonConstants.STR_POISON_PILL);
+            } catch (Exception e) {
+                log.error("发送结束信号失败", e);
+            }
             connectClose.countDown();
         }
 

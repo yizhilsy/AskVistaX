@@ -1,6 +1,7 @@
 package com.mlab.askvistax.config;
 
 import com.mlab.askvistax.interceptors.WsHandshakeInterceptor;
+import com.mlab.askvistax.websocket.AudioStreamHandler;
 import com.mlab.askvistax.websocket.VideoStreamHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -19,9 +20,16 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Autowired
     private VideoStreamHandler videoStreamHandler;
 
+    @Autowired
+    private AudioStreamHandler audioStreamHandler;
+
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // 注册WebSocket处理器
+        registry.addHandler(audioStreamHandler, "/audio")
+                .addInterceptors(wsHandshakeInterceptor)
+                .setAllowedOrigins("*");
+
         registry.addHandler(videoStreamHandler, "/interviewing")
                 .addInterceptors(wsHandshakeInterceptor)
                 .setAllowedOrigins("*");
@@ -31,8 +39,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
         ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        container.setMaxTextMessageBufferSize(65536);    // 文本数据的缓冲区大小设置为 64KB
-        container.setMaxBinaryMessageBufferSize(524288); // 二进制数据的缓冲区大小设置为 512KB
+        container.setMaxTextMessageBufferSize(10 * 1024 * 1024);  // 10MB
+        container.setMaxBinaryMessageBufferSize(10 * 1024 * 1024); // 10MB，提升二进制缓冲区大小
+        container.setAsyncSendTimeout(60000L);                     // 异步发送超时60秒，默认可能较短
         return container;
     }
 

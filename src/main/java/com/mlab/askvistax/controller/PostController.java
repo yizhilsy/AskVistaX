@@ -53,19 +53,19 @@ public class PostController {
     }
 
     @PostMapping("/deliveryPost")
-    public Result deliveryPost(@RequestParam String uid, @RequestParam Integer postId,
-                               @RequestParam String resumeUrl) throws IOException {
+    public Result deliveryPost( @RequestParam Integer postId, @RequestParam String resumeUrl) throws IOException {
         Map<String, Object> map = ThreadLocalUtil.get();
         String userAccount = (String) map.get("userAccount");
         String userName = (String) map.get("userName");
         Integer roleType = (Integer) map.get("roleType");
+        String uid = (String) map.get("uid");
         postService.deliveryPost(uid, postId, resumeUrl);
         log.info("账号名为: {}的用户: {}投递post成功, roleType: {}, postId: {}", userAccount, userName, CommonConstants.roleTypeMap.get(roleType), postId);
         return Result.success();
 
     }
 
-    @PostMapping("/llMyDeliveryPosts")
+    @GetMapping("/llMyDeliveryPosts")
     public Result llMyDeliveryPosts() {
         Map<String, Object> map = ThreadLocalUtil.get();
         String uid = (String) map.get("uid");
