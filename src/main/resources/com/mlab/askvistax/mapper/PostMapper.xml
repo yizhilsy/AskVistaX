@@ -56,7 +56,7 @@
     </insert>
 
     <select id="llMyDeliveryPosts" resultType="com.mlab.askvistax.pojo.DeliveryPost">
-        select interviews.interviewId, posts.postName, posts.postLocation, posts.postBusinessGroup, posts.postType, posts.postCategory, interviews.resumeUrl
+        select interviews.interviewId, posts.postId, posts.postName, posts.postDescription, posts.postRequirement, posts.postNote, posts.postLocation, posts.postBusinessGroup, posts.postType, posts.postCategory
         from interviews inner join posts on interviews.postId = posts.postId
         where interviews.uid = #{uid}
     </select>

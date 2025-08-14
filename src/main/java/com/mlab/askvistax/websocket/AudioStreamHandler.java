@@ -4,9 +4,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mlab.askvistax.pojo.Interview;
-import com.mlab.askvistax.pojo.Message;
-import com.mlab.askvistax.pojo.TTSConfig;
+import com.mlab.askvistax.pojo.*;
 import com.mlab.askvistax.service.InterviewService;
 import com.mlab.askvistax.utils.*;
 import com.sun.jdi.VoidValue;
@@ -43,14 +41,15 @@ import java.util.concurrent.*;
 public class AudioStreamHandler extends AbstractWebSocketHandler {
     // 保存每个session连接对应的二进制数据缓冲区队列，ConcurrentHashMap线程安全的哈希表容器
     // 每个processMessage线程对应的BlockingQueue
-    private final Map<String, BlockingQueue<VideoPacket>> sessionQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<VideoPacket>> sessionQueueMap = new ConcurrentHashMap<>();
 
     // 每个sstHandler线程对应的BlockingQueue
-    private final Map<String, BlockingQueue<Frame>> sessionAudioQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<Frame>> sessionAudioQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionNextSignalQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionSttResultQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionAnswerQueueMap = new ConcurrentHashMap<>();
-
+    private final ConcurrentHashMap<String, BlockingQueue<Message>> sessionAnalyzeQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, List<Message>> sessionMessageHistoryMap = new ConcurrentHashMap<>();
 
     // 每个session连接线程对应的processMessage Future
     private final ConcurrentHashMap<String, Future<?>> sessionProcessMessageFutureMap = new ConcurrentHashMap<>();
@@ -153,7 +152,8 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
 
         log.info("AI面试线程创建，sessionId: {}, interviewId: {}", sessionId, interviewId);
 
-        List<Message> messageHistory = new ArrayList<>();
+        // 取出此时session连接的消息历史列表
+        List<Message> messageHistory = sessionMessageHistoryMap.get(sessionId);
         File dir = new File(baseDir, sessionId);
 
         Interview interview = interviewService.getInterviewById(interviewId);
@@ -237,8 +237,16 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
         messageHistory.add(greetMessage);
         messageHistory.add(userGreetAnswerMessage);
 
+        // 创建analyzer线程并行处理分析
+        Thread analyzerThread = new Thread(
+                () -> analyzer(sessionId, interviewId),
+                "analyzer-" + sessionId
+        );
+        analyzerThread.start();
+
+        BlockingQueue<Message> analyzeQueue = sessionAnalyzeQueueMap.get(sessionId);
         // 3. (客观题)向前端发送题目及对应的音频
-        for (int i = questionList.size() - 1; i < questionList.size(); i++) {
+        for (int i = questionList.size() - 3; i < questionList.size(); i++) {
             String question = questionList.get(i);
             log.info("question: {}", question);
             try {
@@ -269,11 +277,9 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
                 // 阻塞，等待sttRealTimeReceiver线程发送此时回答的语音识别结果
                 answer = answerQueue.take();
 
-                // 将问题和回答加入消息历史messageHistory列表
-                Message assistantMessage = new Message("assistant", question);
-                Message userMessage = new Message("user", answer);
-                messageHistory.add(assistantMessage);
-                messageHistory.add(userMessage);
+                // 将问题和回答塞入analyzeQueue，由analyzer线程并行追加进消息历史列表并分析
+                analyzeQueue.offer(new Message("assistant", question));
+                analyzeQueue.offer(new Message("user", answer));
 
             } catch (Exception e) {
                 log.error("异常", e);
@@ -329,40 +335,61 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
             log.error("异常", e);
         }
 
+        // 将主观题文本和回答塞入消息历史列表
         Message subjectiveQuestionMessage = new Message("assistant", subjective_question);
         Message userSubjectiveAnswerMessage = new Message("user", answer);
         messageHistory.add(subjectiveQuestionMessage);
         messageHistory.add(userSubjectiveAnswerMessage);
 
-        // 对于主观题判断是否需要追问，最大追问次数为3次
-        int maxFollowUp = 1;
-        while (maxFollowUp <= 1) {
-            // 调用evaluate接口
-            Map<String, Object> evaluateRequestBodyMap = new HashMap<>();
-            evaluateRequestBodyMap.put("messages", messageHistory);
-            int overall_score = -1;
-            boolean needs_followup = false;
-            JsonNode evaluateResponseRoot = null;
-            try {
-                String evaluateJsonBody = mapper.writeValueAsString(evaluateRequestBodyMap);
-                String evaluateResponse = httpClientUtil.postJson(CommonConstants.evaluateUrl, evaluateJsonBody, null);
-                evaluateResponseRoot = mapper.readTree(evaluateResponse);
-                overall_score = evaluateResponseRoot.path("overall_score").asInt();
-                needs_followup = evaluateResponseRoot.path("needs_followup").asBoolean();
-                log.info("overall_score: {}, needs_followup: {}", overall_score, needs_followup);
-                // TODO 收集其他维度的评估数据
-                if (overall_score >= 6 || !needs_followup) { // 此时不需要追问
-                    break;
-                }
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
 
+        boolean needs_followup = false;
+        double overall_score = -1;
+
+        // 对于主观题原题的回答调用分析接口
+        Map<String, Object> subjectiveEvaluateRequestBodyMap = new HashMap<>();
+        subjectiveEvaluateRequestBodyMap.put("messages", messageHistory);
+        JsonNode subjectiveOriginEvaluateResponseRoot = null;
+        try {
+            String evaluateJsonBody = mapper.writeValueAsString(subjectiveEvaluateRequestBodyMap);
+            String evaluateResponse = httpClientUtil.postJson(CommonConstants.evaluateUrl, evaluateJsonBody, null);
+            subjectiveOriginEvaluateResponseRoot = mapper.readTree(evaluateResponse);
+
+            // 将主观题分析结果放入数据库
+            InterviewResult interviewResult = new InterviewResult();
+            interviewResult.setQuestion(subjectiveQuestionMessage.getContent());
+            interviewResult.setAnswer(userSubjectiveAnswerMessage.getContent());
+            interviewResult.setInterviewId(interviewId);
+            interviewResult.setOverallScore(subjectiveOriginEvaluateResponseRoot.path("overall_score").asDouble());
+            // 获取 dimensions 节点
+            JsonNode dimensionsNode = subjectiveOriginEvaluateResponseRoot.path("dimensions");
+            // 解析成 Dimensions 对象
+            Dimensions dimensions = mapper.treeToValue(dimensionsNode, Dimensions.class);
+            // 存入 InterviewResult
+            interviewResult.setDimensions(dimensions);
+            interviewResult.setFeedback(subjectiveOriginEvaluateResponseRoot.path("feedback").asText());
+            interviewResult.setNeedFollowup(subjectiveOriginEvaluateResponseRoot.path("needs_followup").asBoolean());
+
+            interviewService.recordResult(interviewResult);
+            overall_score = subjectiveOriginEvaluateResponseRoot.path("overall_score").asInt();
+            needs_followup = subjectiveOriginEvaluateResponseRoot.path("needs_followup").asBoolean();
+            log.info("主观题原题overall_score: {}, needs_followup: {}", overall_score, needs_followup);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+
+
+
+        // 对于主观题判断是否需要追问，最大追问次数为3次
+        String followUpQuestion = null;
+        String followUpAnswer = null;
+        JsonNode preEvaluateResponseRoot = subjectiveOriginEvaluateResponseRoot;
+        int maxFollowUp = 3;
+        int followUp = 1;
+        while (followUp <= maxFollowUp && needs_followup && overall_score < 6) {
             // 调用追问接口
-            String followUpQuestion = null;
             Map<String, Object> followUpRequestBodyMap = new HashMap<>();
             followUpRequestBodyMap.put("messages", messageHistory);
-            followUpRequestBodyMap.put("evaluation_result", evaluateResponseRoot);
+            followUpRequestBodyMap.put("evaluation_result", preEvaluateResponseRoot);
 
             try {
                 String followUpJsonBody = mapper.writeValueAsString(followUpRequestBodyMap);
@@ -389,7 +416,6 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
                 log.error("异常", e);
             }
 
-
             try {
                 // 阻塞，等待前端发送操作码__NEXT__
                 signal = nextSignalQueue.take();
@@ -406,13 +432,47 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
                 log.error("异常", e);
             }
 
+            // 将追问问题及回答塞入消息历史列表
+            followUpAnswer = answer;
             Message followUpMessage = new Message("assistant", followUpQuestion);
-            Message userFollowUpAnswerMessage = new Message("user", answer);
+            Message userFollowUpAnswerMessage = new Message("user", followUpAnswer);
             messageHistory.add(followUpMessage);
             messageHistory.add(userFollowUpAnswerMessage);
 
+            // 调用evaluate接口评估追问回答的质量
+            Map<String, Object> evaluateRequestBodyMap = new HashMap<>();
+            evaluateRequestBodyMap.put("messages", messageHistory);
+            try {
+                String evaluateJsonBody = mapper.writeValueAsString(evaluateRequestBodyMap);
+                String evaluateResponse = httpClientUtil.postJson(CommonConstants.evaluateUrl, evaluateJsonBody, null);
+                JsonNode evaluateResponseRoot = mapper.readTree(evaluateResponse);
 
-            maxFollowUp++;
+                // 追问分析结果放入数据库
+                InterviewResult interviewResult = new InterviewResult();
+                interviewResult.setQuestion(followUpQuestion);
+                interviewResult.setAnswer(followUpAnswer);
+                interviewResult.setInterviewId(interviewId);
+                interviewResult.setOverallScore(evaluateResponseRoot.path("overall_score").asDouble());
+                // 获取 dimensions 节点
+                JsonNode dimensionsNode = evaluateResponseRoot.path("dimensions");
+                // 解析成 Dimensions 对象
+                Dimensions dimensions = mapper.treeToValue(dimensionsNode, Dimensions.class);
+                // 存入 InterviewResult
+                interviewResult.setDimensions(dimensions);
+                interviewResult.setFeedback(evaluateResponseRoot.path("feedback").asText());
+                interviewResult.setNeedFollowup(evaluateResponseRoot.path("needs_followup").asBoolean());
+
+                interviewService.recordResult(interviewResult);
+
+                overall_score = evaluateResponseRoot.path("overall_score").asInt();
+                needs_followup = evaluateResponseRoot.path("needs_followup").asBoolean();
+                preEvaluateResponseRoot = evaluateResponseRoot;
+                log.info("追问回答overall_score: {}, needs_followup: {}", overall_score, needs_followup);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+
+            followUp++;
         }
 
         // AI 面试结束
@@ -421,13 +481,66 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
             JSONObject endJson = new JSONObject();
             endJson.put("type", "end");
             conCurrentSession.sendMessage(new TextMessage(endJson.toJSONString()));
+            // 向面试分析线程发送分析队列结束信号
+
 
         } catch (Exception e) {
             log.error("异常", e);
         }
 
         log.info("AI 面试线程结束");
+        log.info("messageHistory: {}", messageHistory);
     }
+
+    private void analyzer(String sessionId, Integer interviewId) {
+        log.info("面试分析线程创建！");
+        // 获取分析队列
+        BlockingQueue<Message> analyzeQueue = sessionAnalyzeQueueMap.get(sessionId);
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            while(true) {
+                // 一次取出两条消息
+                Message assistantMessage = analyzeQueue.take();
+                if (assistantMessage == CommonConstants.MSG_POISON_PILL) {
+                    log.info("面试分析线程收到结束信号，sessionId: {}", sessionId);
+                    break;
+                }
+                Message userMessage = analyzeQueue.take();
+                // 追加进消息历史
+                List<Message> messageHistory = sessionMessageHistoryMap.get(sessionId);
+                messageHistory.add(assistantMessage);
+                messageHistory.add(userMessage);
+                // 构造evaluate请求参数并调用evaluate接口获取分析结果
+                Map<String, Object> evaluateRequestBodyMap = new HashMap<>();
+                evaluateRequestBodyMap.put("messages", messageHistory);
+                String evaluateJsonBody = mapper.writeValueAsString(evaluateRequestBodyMap);
+                String evaluateResponse = httpClientUtil.postJson(CommonConstants.evaluateUrl, evaluateJsonBody, null);
+                JsonNode evaluateResponseRoot = mapper.readTree(evaluateResponse);
+
+                // 将分析结果存入数据库
+                InterviewResult interviewResult = new InterviewResult();
+                interviewResult.setQuestion(assistantMessage.getContent());
+                interviewResult.setAnswer(userMessage.getContent());
+                interviewResult.setInterviewId(interviewId);
+                interviewResult.setOverallScore(evaluateResponseRoot.path("overall_score").asDouble());
+                // 获取 dimensions 节点
+                JsonNode dimensionsNode = evaluateResponseRoot.path("dimensions");
+                // 解析成 Dimensions 对象
+                Dimensions dimensions = mapper.treeToValue(dimensionsNode, Dimensions.class);
+                // 存入 InterviewResult
+                interviewResult.setDimensions(dimensions);
+                interviewResult.setFeedback(evaluateResponseRoot.path("feedback").asText());
+                interviewResult.setNeedFollowup(evaluateResponseRoot.path("needs_followup").asBoolean());
+
+                interviewService.recordResult(interviewResult);
+                log.info("成功将客观题分析结果存入数据库");
+            }
+        } catch (Exception e) {
+            log.error("分析线程异常", e);
+        }
+        log.info("面试分析线程退出, sessionId: {}", sessionId);
+    }
+
 
     // 初始化函数
     private void initProcess(WebSocketSession session) {
@@ -438,6 +551,8 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
         BlockingQueue<String> sttResultQueue = new LinkedBlockingQueue<>();
         BlockingQueue<String> nextSignalQueue = new ArrayBlockingQueue<>(1);
         BlockingQueue<String> answerQueue = new ArrayBlockingQueue<>(1);
+        BlockingQueue<Message> analyzeQueue = new ArrayBlockingQueue<>(2);
+        List<Message> messageHistory = new ArrayList<>();
 
         // 包装成线程安全的 session
         WebSocketSession conCurrentSession = new ConcurrentWebSocketSessionDecorator(
@@ -452,6 +567,8 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
         sessionSttResultQueueMap.put(sessionId, sttResultQueue);
         sessionNextSignalQueueMap.put(sessionId, nextSignalQueue);
         sessionAnswerQueueMap.put(sessionId, answerQueue);
+        sessionAnalyzeQueueMap.put(sessionId, analyzeQueue);
+        sessionMessageHistoryMap.put(sessionId, messageHistory);
         concurrentWebSocketSessionMap.put(sessionId, conCurrentSession);
 
         // 在线程池中启动sessionId对应的处理线程，并将Future存入sessionProcessMessageFutureMap

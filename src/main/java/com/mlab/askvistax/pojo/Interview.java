@@ -19,4 +19,6 @@ public class Interview {
     private LocalDateTime endTime;
     private String videoUrl;
     private String resumeUrl;
+    private VideoAnalyze videoAnalyzeResult; // 视频分析结果
+    private AudioAnalyze audioAnalyzeResult; // 音频分析结果
 }

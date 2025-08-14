@@ -4,11 +4,88 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.mlab.askvistax.mapper.InterviewMapper">
 
-    <select id="getInterviewById" resultType="com.mlab.askvistax.pojo.Interview">
-        select interviewId, uid, postId, startTime, endTime, videoUrl, resumeUrl
+    <resultMap id="InterviewMap" type="com.mlab.askvistax.pojo.Interview">
+        <id column="interviewId" property="interviewId"/>
+        <result column="uid" property="uid"/>
+        <result column="postId" property="postId"/>
+        <result column="startTime" property="startTime"/>
+        <result column="endTime" property="endTime"/>
+        <result column="videoUrl" property="videoUrl"/>
+        <result column="videoAnalyzeResult" property="videoAnalyzeResult" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
+        <result column="audioAnalyzeResult" property="audioAnalyzeResult" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
+    </resultMap>
+
+
+    <select id="getInterviewById" resultMap="InterviewMap">
+        select interviewId, uid, postId, startTime, endTime, videoUrl, resumeUrl, videoAnalyzeResult, audioAnalyzeResult
         from interviews
         where interviewId = #{interviewId}
     </select>
 
+    <resultMap id="InterviewResultMap" type="com.mlab.askvistax.pojo.InterviewResult">
+        <id column="interviewResultId" property="interviewResultId"/>
+        <result column="interviewId" property="interviewId"/>
+        <result column="question" property="question"/>
+        <result column="answer" property="answer"/>
+        <result column="overall_score" property="overallScore"/>
+        <result column="dimensions" property="dimensions" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
+        <result column="feedback" property="feedback"/>
+        <result column="need_followup" property="needFollowup"/>
+    </resultMap>
+
+    <insert id="recordResult" useGeneratedKeys="true" keyProperty="interviewResultId">
+        INSERT INTO interviewresults (
+            interviewId,
+            question,
+            answer,
+            overall_score,
+            dimensions,
+            feedback,
+            need_followup
+        ) VALUES (
+                     #{interviewId},
+                     #{question},
+                     #{answer},
+                     #{overallScore},
+                     #{dimensions, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
+                     #{feedback},
+                     #{needFollowup}
+                 )
+    </insert>
+
+
+    <select id="getInterviewRecordById" resultMap="InterviewResultMap">
+        select * from interviewresults where interviewId = #{interviewId}
+    </select>
+
+    <update id="updateInterview">
+        update interviews
+        <set>
+            <if test="startTime != null">
+                startTime = #{startTime},
+            </if>
+
+            <if test="endTime != null">
+                endTime = #{endTime},
+            </if>
+
+            <if test="videoUrl != null and videoUrl != ''">
+                videoUrl = #{videoUrl},
+            </if>
+
+            <if test="resumeUrl != null and resumeUrl != ''">
+                resumeUrl = #{resumeUrl},
+            </if>
+
+            <if test="audioAnalyzeResult != null">
+                audioAnalyzeResult = #{audioAnalyzeResult, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
+            </if>
+
+            <if test="videoAnalyzeResult != null">
+                videoAnalyzeResult = #{videoAnalyzeResult, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
+            </if>
+        </set>
+        where interviewId = #{interviewId}
+    </update>
 
 </mapper>

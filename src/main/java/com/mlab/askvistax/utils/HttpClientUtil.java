@@ -3,6 +3,7 @@ package com.mlab.askvistax.utils;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -17,7 +18,10 @@ public class HttpClientUtil {
     private final RestTemplate restTemplate;
 
     public HttpClientUtil() {
-        this.restTemplate = new RestTemplate();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10_000); // 连接超时 10 秒
+        factory.setReadTimeout(300_000);   // 读取超时 5 分钟
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -139,5 +143,53 @@ public class HttpClientUtil {
         ResponseEntity<JsonNode> response = restTemplate.postForEntity(url, requestEntity, JsonNode.class);
         return response.getBody();
     }
+
+    /**
+     * 发送POST请求，multipart/form-data 格式上传多个文件（可指定字段名），并返回 JSON 响应
+     *
+     * @param url 请求地址
+     * @param fileMap 文件字段映射，例如：
+     *                key: form-data 字段名 (如 "file"、"audio")
+     *                value: 对应的文件对象
+     * @param headers 额外请求头（可传null）
+     * @param formFields 除文件外的额外表单字段（可传null）
+     * @return 接口返回的 JSON 字符串
+     */
+    public JsonNode postMultipartFiles(String url,
+                                       Map<String, File> fileMap,
+                                       Map<String, String> headers,
+                                       Map<String, String> formFields) {
+        // 校验文件
+        if (fileMap == null || fileMap.isEmpty()) {
+            throw new IllegalArgumentException("文件映射不能为空");
+        }
+        for (Map.Entry<String, File> entry : fileMap.entrySet()) {
+            File file = entry.getValue();
+            if (file == null || !file.exists()) {
+                throw new IllegalArgumentException("文件不存在: " + (file != null ? file.getAbsolutePath() : "null"));
+            }
+        }
+
+        HttpHeaders httpHeaders = new HttpHeaders();
+        httpHeaders.setContentType(MediaType.MULTIPART_FORM_DATA);
+        if (headers != null) {
+            headers.forEach(httpHeaders::add);
+        }
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        // 添加文件
+        for (Map.Entry<String, File> entry : fileMap.entrySet()) {
+            body.add(entry.getKey(), new FileSystemResource(entry.getValue()));
+        }
+        // 添加额外字段
+        if (formFields != null) {
+            formFields.forEach(body::add);
+        }
+
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, httpHeaders);
+        ResponseEntity<JsonNode> response = restTemplate.postForEntity(url, requestEntity, JsonNode.class);
+        return response.getBody();
+    }
+
 }
 

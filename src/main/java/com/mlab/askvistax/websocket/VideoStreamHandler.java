@@ -3,9 +3,7 @@ package com.mlab.askvistax.websocket;
 import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mlab.askvistax.pojo.Interview;
-import com.mlab.askvistax.pojo.Message;
-import com.mlab.askvistax.pojo.TTSConfig;
+import com.mlab.askvistax.pojo.*;
 import com.mlab.askvistax.service.InterviewService;
 import com.mlab.askvistax.utils.*;
 import com.sun.jdi.VoidValue;
@@ -21,7 +19,9 @@ import org.bytedeco.javacv.Frame;
 import org.bytedeco.opencv.presets.opencv_core;
 import org.opencv.video.Video;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.stereotype.Component;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.adapter.standard.StandardWebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
@@ -43,15 +43,15 @@ import java.util.concurrent.*;
 public class VideoStreamHandler extends AbstractWebSocketHandler {
     // 保存每个session连接对应的二进制数据缓冲区队列，ConcurrentHashMap线程安全的哈希表容器
     // 每个processMessage线程对应的BlockingQueue
-    private final Map<String, BlockingQueue<VideoPacket>> sessionQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<VideoPacket>> sessionQueueMap = new ConcurrentHashMap<>();
     // 每个videoSaver线程对应的BlockingQueue
-    private final Map<String, BlockingQueue<VideoPacket>> sessionFileQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<VideoPacket>> sessionFileQueueMap = new ConcurrentHashMap<>();
     // 每个sstHandler线程对应的BlockingQueue
-    private final Map<String, BlockingQueue<Frame>> sessionAudioQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BlockingQueue<Frame>> sessionAudioQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionNextSignalQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionSttResultQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionAnswerQueueMap = new ConcurrentHashMap<>();
-
+    private final ConcurrentHashMap<String, Integer> sessionInterviewIdMap = new ConcurrentHashMap<>();
 
     // 每个session连接线程对应的processMessage Future
     private final ConcurrentHashMap<String, Future<?>> sessionProcessMessageFutureMap = new ConcurrentHashMap<>();
@@ -69,6 +69,8 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     private AudioUtil audioUtil;
     @Autowired
     private RTASRTest rtasrTest;
+    @Autowired
+    private HuaWeiOBSUtils huaWeiOBSUtils;
 
 
 
@@ -82,11 +84,12 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         Map<String, Object> claims = (Map<String, Object>) attributes.get("claims");
         log.info("session连接: {}建立成功, URI: {}, connect_userAccount: {}, connect_userName: {}, connect_roleType: {}", sessionId, uri, claims.get("userAccount"), claims.get("userName"), CommonConstants.roleTypeMap.get(claims.get("roleType")));
 
-
-        initProcess(session);
-
         Integer interviewId = (Integer) attributes.get("interviewId");
-        BlockingQueue<String> nextSignalQueue = sessionNextSignalQueueMap.get(sessionId);
+
+        initProcess(session, interviewId);
+
+
+//        BlockingQueue<String> nextSignalQueue = sessionNextSignalQueueMap.get(sessionId);
 
         // AI面试线程池
 //        aiInterviewPool.submit(() -> aiInterview(sessionId, interviewId, nextSignalQueue));
@@ -212,7 +215,7 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     }
 
     // 初始化函数
-    private void initProcess(WebSocketSession session) {
+    private void initProcess(WebSocketSession session, Integer interviewId) {
         String sessionId = session.getId();
         // 创建BlockingQueue
         BlockingQueue<VideoPacket> queue = new LinkedBlockingQueue<>();
@@ -237,15 +240,15 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         sessionNextSignalQueueMap.put(sessionId, nextSignalQueue);
         sessionAnswerQueueMap.put(sessionId, answerQueue);
         concurrentWebSocketSessionMap.put(sessionId, conCurrentSession);
+        sessionInterviewIdMap.put(sessionId, interviewId);
 
         // 在线程池中启动sessionId对应的处理线程，并将Future存入sessionProcessMessageFutureMap
-        Future<?> future = processorPool.submit(() -> processMessage(sessionId, queue, fileQueue, audioQueue));
+        Future<?> future = processorPool.submit(() -> processMessage(sessionId, queue, fileQueue));
         sessionProcessMessageFutureMap.put(sessionId, future);
     }
 
     // 视频流处理函数
-    private void processMessage(String sessionId, BlockingQueue<VideoPacket> queue, BlockingQueue<VideoPacket> fileQueue,
-                                BlockingQueue<Frame> audioQueue) {
+    private void processMessage(String sessionId, BlockingQueue<VideoPacket> queue, BlockingQueue<VideoPacket> fileQueue) {
         log.info("处理线程创建！sessionId: {}", sessionId);
         File outputFile = new File("video_" + sessionId + "_" + System.currentTimeMillis() + ".webm");
         int bufferSize = 2048 * 1024;
@@ -254,16 +257,16 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
              PipedInputStream pipeIn = new PipedInputStream(pipeOut, bufferSize);
              FileOutputStream fos = new FileOutputStream(outputFile)) {
 
-            // 启动解码线程
-//            Thread videoDecoderThread = new Thread(
-//                    () -> videoDecoder(pipeIn, sessionId, audioQueue),
-//                    "Decoder-" + sessionId
-//            );
-//            videoDecoderThread.start();
+            // 启动音频保存线程
+            Thread videoDecoderThread = new Thread(
+                    () -> videoDecoder(pipeIn, sessionId),
+                    "Decoder-" + sessionId
+            );
+            videoDecoderThread.start();
 
             // 启动视频保存线程
             Thread videoSaverThread = new Thread(
-                    () -> videoSaver(sessionId, fileQueue, fos),
+                    () -> videoSaver(sessionId, fileQueue, fos, outputFile),
                     "Saver-" + sessionId
             );
             videoSaverThread.start();
@@ -275,14 +278,14 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
                     log.info("ws视频流处理线程 sessionId={} 超时没有接收到数据", sessionId);
                     pipeOut.close();
                     videoSaverThread.join();
-//                    videoDecoderThread.join();
+                    videoDecoderThread.join();
                     break;
                 }
                 else if (packet.isPoisonPill()) {
                     log.info("ws视频流关闭，结束处理线程 sessionId={}", sessionId);
                     pipeOut.close();
                     videoSaverThread.join();
-//                    videoDecoderThread.join();
+                    videoDecoderThread.join();
                     break;
                 }
                 else {
@@ -406,18 +409,20 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
 
 
     // 保存视频流文件函数
-    private void videoSaver(String sessionId, BlockingQueue<VideoPacket> fileQueue, FileOutputStream fos) {
-        log.info("保存线程创建！");
+    private void videoSaver(String sessionId, BlockingQueue<VideoPacket> fileQueue, FileOutputStream fos,
+                            File videoSaveFile) {
+        log.info("vsWebsocket视频保存线程创建！");
+        ObjectMapper mapper = new ObjectMapper();
 
         try {
             while (true) {
                 VideoPacket chunk = fileQueue.poll(16, TimeUnit.SECONDS);
                 if (chunk == null) {
-                    log.info("视频保存线程 sessionId={} 超时没有接收到数据，结束保存", sessionId);
+                    log.info("vsWebsocket视频保存线程 sessionId={} 超时没有接收到数据，结束保存", sessionId);
                     break;
                 }
                 else if (chunk.isPoisonPill()) {
-                    log.info("ws视频流关闭，视频文件写入完成。结束视频流保存线程 sessionId={}", sessionId);
+                    log.info("vsWebsocket视频流关闭，视频文件写入完成。结束视频流保存线程 sessionId={}", sessionId);
                     break;
                 }
                 else {
@@ -427,51 +432,76 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
             }
         }
         catch (Exception e) {
-            log.error("保存视频流异常 sessionId: {}", sessionId, e);
+            log.error("vsWebsocket保存视频流异常 sessionId: {}", sessionId, e);
+        }
+
+        // 请求视频分析接口
+        if (videoSaveFile != null && videoSaveFile.exists()) {
+            try {
+                Map<String, File> videoFileMap = new HashMap<>();
+                videoFileMap.put("video", videoSaveFile); // form-data 字段名是 "video"
+
+                JsonNode videoAnalyzeResponse = httpClientUtil.postMultipartFiles(
+                        CommonConstants.videoAnalyzeUrl,
+                        videoFileMap,
+                        null,
+                        null
+                );
+
+                VideoAnalyze videoAnalyze = new VideoAnalyze();
+                videoAnalyze.setSummary(videoAnalyzeResponse.path("data").path("summary").asText());
+                JsonNode global_assessmentNode = videoAnalyzeResponse.path("data").path("global_assessment");
+                VideoAssessment videoAssessment = mapper.treeToValue(global_assessmentNode, VideoAssessment.class);
+                videoAnalyze.setVideoAssessment(videoAssessment);
+                log.info("视频分析完成，分析结果：{}", videoAnalyze);
+                Integer interviewId = sessionInterviewIdMap.get(sessionId);
+                Interview interview = interviewService.getInterviewById(interviewId);
+                interview.setVideoAnalyzeResult(videoAnalyze);
+
+                File videoFile = videoSaveFile;
+                MultipartFile multipartFile = null;
+                try (FileInputStream fis = new FileInputStream(videoFile)) {
+                    multipartFile = new MockMultipartFile(
+                            videoFile.getName(),       // 文件名
+                            videoFile.getName(),       // originalFilename
+                            "video/webm",              // 文件类型，根据实际文件类型填写
+                            fis                        // 文件内容流
+                    );
+                } catch (Exception e) {
+                    log.error("File 转 MultipartFile 失败", e);
+                }
+                log.info("面试视频记录上传至华为云obs成功");
+                String videoUrl = huaWeiOBSUtils.upload(multipartFile);
+                interview.setVideoUrl(videoUrl);
+                interviewService.updateInterview(interview);
+                log.info("成功将视频分析结果存入数据库");
+            } catch (Exception e) {
+                log.error("视频上传失败 sessionId: {}", sessionId, e);
+            }
+        } else {
+            log.warn("视频文件不存在，无法上传 sessionId={}", sessionId);
         }
     }
 
     // 视频流解码函数
-    private void videoDecoder(PipedInputStream pipeIn, String sessionId, BlockingQueue<Frame> audioQueue) {
-        log.info("解码线程创建！");
+    private void videoDecoder(PipedInputStream pipeIn, String sessionId) {
+        log.info("vsSocket音频保存分析线程创建！");
+        String audioOutputPath = "audio_" + sessionId + "_" + System.currentTimeMillis() + ".wav";
+        File audioFile = new File(audioOutputPath);
 
         try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(pipeIn)) {
             // 设置抓取器参数
             grabber.setFormat("webm");
             grabber.setOption("probesize", "32"); // 几十字节就开始解析
-            grabber.setOption("analyzeduration", "0"); // 不额外等待分析
+            grabber.setOption("analyzeduration", "2000"); // 不额外等待分析
 
-
-//            // 启动实时语音转文本线程sttRealTimeTranser
-//            Thread sttRealTimeTranserThread = new Thread(
-//                    () -> sttRealTimeTranser(sessionId, audioQueue),
-//                    "sstRealTimeTranser-" + sessionId
-//            );
-//            sttRealTimeTranserThread.start();
-//
-//            // 启动实时语音转文本接收线程sttRealTimeReceiver
-//            Thread sttRealTimeReceiverThread = new Thread(
-//                    () -> sttRealTimeReceiver(sessionId),
-//                    "sttRealTimeReceiver-" + sessionId
-//            );
-//            sttRealTimeReceiverThread.start();
-
-            log.info("启动grabber前的时间");
             grabber.start();
-            log.info("启动grabber后的时间");
 
             int sampleRate = grabber.getSampleRate();
             int audioChannels = grabber.getAudioChannels();
 
-            // 启动语音转文本线程sstHandler
-//            Thread sttHandlerThread = new Thread(
-//                    () -> sttHandler(sessionId, audioQueue, sampleRate, audioChannels),
-//                    "sttHandler-" + sessionId
-//            );
-//            sttHandlerThread.start();
-
             // 初始化录音器，设置参数与抓取器一致
-            String audioOutputPath = "audio_" + sessionId + "_" + System.currentTimeMillis() + ".wav";
+
             FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(audioOutputPath, 1);
             recorder.setFormat("wav");            // 输出wav文件
             recorder.setSampleRate(sampleRate);
@@ -488,22 +518,59 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
 //                }
 
                 if (frame.samples != null) {
-                    log.info("解码线程: {} 处理第 {} 音频帧, 时间戳: {}", sessionId, frameCount++, frame.timestamp);
+//                    log.info("解码线程: {} 处理第 {} 音频帧, 时间戳: {}", sessionId, frameCount++, frame.timestamp);
                     recorder.recordSamples(frame.samples);
-                    audioQueue.offer(audioUtil.cloneAudioFrame(frame));
+//                    audioQueue.offer(audioUtil.cloneAudioFrame(frame));
                 }
             }
 
             recorder.stop();
             recorder.release();
             grabber.stop();
-            audioQueue.offer(CommonConstants.POISON_PILL); // 发送结束信号给语音转文本线程
-//            sttHandlerThread.join();
-//            sttRealTimeTranserThread.join();
-//            sttRealTimeReceiverThread.join();
+
         } catch (Exception e) {
             log.error("解码线程异常 sessionId: {}", sessionId, e);
         }
+
+        log.info("音频文件成功保存，文件名: {}", audioOutputPath);
+
+        if (audioFile != null && audioFile.exists()) {
+            try {
+                Map<String, File> fileMap = new HashMap<>();
+                fileMap.put("audio", audioFile); // form-data 字段名是 "audio"
+
+                // 串行执行上传，方法返回后才继续执行
+                JsonNode audioResponseNode = httpClientUtil.postMultipartFiles(
+                        CommonConstants.audioAnalyzeuUrl,
+                        fileMap,
+                        null,       // 额外请求头
+                        null  // 额外表单字段
+                );
+
+                AudioAnalyze audioAnalyze = new AudioAnalyze();
+                audioAnalyze.setTone(audioResponseNode.path("data").path("tone").asText());
+                audioAnalyze.setPitchVariation(audioResponseNode.path("data").path("pitch_variation").asText());
+                audioAnalyze.setSpeechRate(audioResponseNode.path("data").path("speech_rate").asText());
+                audioAnalyze.setSummary(audioResponseNode.path("data").path("summary").asText());
+
+                log.info("音频分析完成，分析结果：{}", audioAnalyze);
+
+                Integer interviewId = sessionInterviewIdMap.get(sessionId);
+                Interview interview = interviewService.getInterviewById(interviewId);
+                interview.setAudioAnalyzeResult(audioAnalyze);
+                interviewService.updateInterview(interview);
+                log.info("将音频分析结果存入数据库");
+
+            } catch (Exception e) {
+                log.error("音频上传或分析失败 sessionId: {}", sessionId, e);
+            }
+        } else {
+            log.warn("音频文件不存在，无法上传分析 sessionId={}", sessionId);
+        }
+
+
+
+        log.info("vsSocket音频保存分析线程退出！");
     }
 
     // TODO 弃用的一些实现

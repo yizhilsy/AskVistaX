@@ -1,5 +1,6 @@
 package com.mlab.askvistax.utils;
 
+import com.mlab.askvistax.pojo.Message;
 import org.bytedeco.javacv.Frame;
 
 import java.util.HashMap;
@@ -15,6 +16,8 @@ public class CommonConstants {
     public static String subjective_questionUrl;
     public static String evaluateUrl;
     public static String followUpUrl;
+    public static String videoAnalyzeUrl;
+    public static String audioAnalyzeuUrl;
 
     // 定义一个单例结束标记 Frame 对象
     public static final Frame POISON_PILL = new Frame();
@@ -27,6 +30,7 @@ public class CommonConstants {
     public static final String STR_POISON_PILL;
 
     public static final String STR_NEXT;
+    public static final Message MSG_POISON_PILL = new Message();
 
     static {
         roleTypeMap.put(0, "Admin");
@@ -40,6 +44,8 @@ public class CommonConstants {
         subjective_questionUrl = "http://58.199.161.182:8000/llm/subjective_question";
         evaluateUrl = "http://58.199.161.182:8000/llm/evaluate";
         followUpUrl = "http://58.199.161.182:8000/llm/followup";
+        videoAnalyzeUrl = "http://58.199.161.182:8000/understanding/video/analyze";
+        audioAnalyzeuUrl = "http://58.199.161.182:8000/understanding/audio/analyze";
 
         FRAME_MS = 40;
         TARGET_SR = 16000;
