@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.cglib.core.Local;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @AllArgsConstructor
 @NoArgsConstructor
@@ -21,4 +22,7 @@ public class Interview {
     private String resumeUrl;
     private VideoAnalyze videoAnalyzeResult; // 视频分析结果
     private AudioAnalyze audioAnalyzeResult; // 音频分析结果
+    private List<Message> messageHistory; // 面试过程中记录的消息
+    private Summary summary; // 面试总结
+
 }

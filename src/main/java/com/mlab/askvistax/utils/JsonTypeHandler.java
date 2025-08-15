@@ -1,16 +1,14 @@
 package com.mlab.askvistax.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mlab.askvistax.pojo.AudioAnalyze;
-import com.mlab.askvistax.pojo.Dimensions;
-import com.mlab.askvistax.pojo.VideoAnalyze;
+import com.mlab.askvistax.pojo.*;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 import org.apache.ibatis.type.MappedTypes;
 
 import java.sql.*;
 
-@MappedTypes({Dimensions.class, AudioAnalyze.class, VideoAnalyze.class})
+@MappedTypes({Dimensions.class, AudioAnalyze.class, VideoAnalyze.class, Summary.class, AbilityRadar.class, KeyIssue.class})
 public class JsonTypeHandler<T> extends BaseTypeHandler<T> {
 
     private static final ObjectMapper mapper = new ObjectMapper();

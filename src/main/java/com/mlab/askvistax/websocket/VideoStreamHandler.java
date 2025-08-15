@@ -1,10 +1,13 @@
 package com.mlab.askvistax.websocket;
 
 import com.alibaba.fastjson.JSONObject;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mlab.askvistax.pojo.*;
+import com.mlab.askvistax.service.CommonService;
 import com.mlab.askvistax.service.InterviewService;
+import com.mlab.askvistax.service.PostService;
 import com.mlab.askvistax.utils.*;
 import com.sun.jdi.VoidValue;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +55,9 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionSttResultQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, BlockingQueue<String>> sessionAnswerQueueMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> sessionInterviewIdMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JsonNode> sessionVideoAnalyzeResponseMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JsonNode> sessionAudioAnalyzeResponseMap = new ConcurrentHashMap<>();
+
 
     // 每个session连接线程对应的processMessage Future
     private final ConcurrentHashMap<String, Future<?>> sessionProcessMessageFutureMap = new ConcurrentHashMap<>();
@@ -63,6 +69,10 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
 
     @Autowired
     private InterviewService interviewService;
+    @Autowired
+    private PostService postService;
+    @Autowired
+    private CommonService commonService;
     @Autowired
     private HttpClientUtil httpClientUtil;
     @Autowired
@@ -300,6 +310,79 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
         } catch (IOException | InterruptedException e) {
             log.error("处理线程异常 sessionId: {}", sessionId, e);
         }
+
+
+        ObjectMapper mapper = new ObjectMapper();
+        //请求summary接口
+        WebSocketSession concurrentSession = concurrentWebSocketSessionMap.get(sessionId);
+        Integer interviewId = sessionInterviewIdMap.get(sessionId);
+        JsonNode videoAnalyzeResponse = sessionVideoAnalyzeResponseMap.get(sessionId);
+        JsonNode audioAnalyzeResponse = sessionAudioAnalyzeResponseMap.get(sessionId);
+        Interview interview = interviewService.getInterviewById(interviewId);
+        Post post = postService.getPostByPostId(interview.getPostId());
+        Map<String, Object> attributes = concurrentSession.getAttributes();
+        Map<String, Object> claims = (Map<String, Object>) attributes.get("claims");
+        String userAccount = (String) claims.get("userAccount");
+        CandidateUser candidateUser = commonService.getCandidateUserByUserAccount(userAccount);
+
+        List<Message> messageHistory = interview.getMessageHistory();
+
+        Map<String, Object> summaryRequestBodyMap = new HashMap<>();
+        summaryRequestBodyMap.put("messages", messageHistory);
+        summaryRequestBodyMap.put("video_analysis", videoAnalyzeResponse);
+        summaryRequestBodyMap.put("audio_analysis", audioAnalyzeResponse);
+        summaryRequestBodyMap.put("candidate_name", candidateUser.getRealName());
+        summaryRequestBodyMap.put("position", post.getPostName());
+
+        try {
+            String summaryJsonBody = mapper.writeValueAsString(summaryRequestBodyMap);
+            String summaryResponse = httpClientUtil.postJson(CommonConstants.summaryUrl, summaryJsonBody, null);
+            JsonNode summaryResponseRoot = mapper.readTree(summaryResponse);
+            Summary summary = new Summary();
+            summary.setOverall_assessment(summaryResponseRoot.path("overall_assessment").asText());
+
+            AbilityRadar abilityRadar = new AbilityRadar();
+            abilityRadar.setTechnicalSkills(summaryResponseRoot.path("ability_radar").path("技术能力").asDouble());
+            abilityRadar.setCommunicationExpression(summaryResponseRoot.path("ability_radar").path("沟通表达").asDouble());
+            abilityRadar.setLogicalThinking(summaryResponseRoot.path("ability_radar").path("逻辑思维").asDouble());
+            abilityRadar.setLearningAbility(summaryResponseRoot.path("ability_radar").path("学习能力").asDouble());
+            abilityRadar.setTeamWork(summaryResponseRoot.path("ability_radar").path("团队协作").asDouble());
+            abilityRadar.setStressTolerance(summaryResponseRoot.path("ability_radar").path("抗压能力").asDouble());
+            abilityRadar.setInnovativeThinking(summaryResponseRoot.path("ability_radar").path("创新思维").asDouble());
+            abilityRadar.setProblemSolving(summaryResponseRoot.path("ability_radar").path("问题解决").asDouble());
+            summary.setAbility_radar(abilityRadar);
+
+            JsonNode keyIssuesNode = summaryResponseRoot.path("key_issues");
+            List<KeyIssue> keyIssuesList = mapper.readValue(
+                    keyIssuesNode.toString(),
+                    new TypeReference<List<KeyIssue>>() {}
+            );
+            summary.setKey_issues(keyIssuesList);
+
+            JsonNode behavioralFeedbackNode = summaryResponseRoot.path("behavioral_feedback");
+            List<String> behavioralFeedbackList = mapper.readValue(
+                    behavioralFeedbackNode.toString(),
+                    new TypeReference<List<String>>() {}
+            );
+
+            summary.setBehavioral_feedback(behavioralFeedbackList);
+
+            summary.setRecommendation(summaryResponseRoot.path("recommendation").asText());
+
+            JsonNode improvementSuggestionsNode = summaryResponseRoot.path("improvement_suggestions");
+            List<String > improvementSuggestionsList = mapper.readValue(
+                    improvementSuggestionsNode.toString(),
+                    new TypeReference<List<String>>() {}
+            );
+            summary.setImprovement_suggestions(improvementSuggestionsList);
+            interview.setSummary(summary);
+            // 将summary结果存入表interviews中
+            interviewService.updateInterview(interview);
+            log.info("成功将summary结果存入表interviews中，summary: {}", summary);
+        } catch (Exception e) {
+            log.info("调用面试总结接口失败", e);
+        }
+        log.info("vsSocket视频流处理线程退出!");
     }
 
     // 实时语音转文本结果接收线程
@@ -409,8 +492,7 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
 
 
     // 保存视频流文件函数
-    private void videoSaver(String sessionId, BlockingQueue<VideoPacket> fileQueue, FileOutputStream fos,
-                            File videoSaveFile) {
+    private void videoSaver(String sessionId, BlockingQueue<VideoPacket> fileQueue, FileOutputStream fos, File videoSaveFile) {
         log.info("vsWebsocket视频保存线程创建！");
         ObjectMapper mapper = new ObjectMapper();
 
@@ -447,6 +529,7 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
                         null,
                         null
                 );
+                sessionVideoAnalyzeResponseMap.put(sessionId, videoAnalyzeResponse);
 
                 VideoAnalyze videoAnalyze = new VideoAnalyze();
                 videoAnalyze.setSummary(videoAnalyzeResponse.path("data").path("summary").asText());
@@ -501,7 +584,6 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
             int audioChannels = grabber.getAudioChannels();
 
             // 初始化录音器，设置参数与抓取器一致
-
             FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(audioOutputPath, 1);
             recorder.setFormat("wav");            // 输出wav文件
             recorder.setSampleRate(sampleRate);
@@ -540,18 +622,19 @@ public class VideoStreamHandler extends AbstractWebSocketHandler {
                 fileMap.put("audio", audioFile); // form-data 字段名是 "audio"
 
                 // 串行执行上传，方法返回后才继续执行
-                JsonNode audioResponseNode = httpClientUtil.postMultipartFiles(
+                JsonNode audioAnalyzeResponseNode = httpClientUtil.postMultipartFiles(
                         CommonConstants.audioAnalyzeuUrl,
                         fileMap,
                         null,       // 额外请求头
                         null  // 额外表单字段
                 );
+                sessionAudioAnalyzeResponseMap.put(sessionId, audioAnalyzeResponseNode);
 
                 AudioAnalyze audioAnalyze = new AudioAnalyze();
-                audioAnalyze.setTone(audioResponseNode.path("data").path("tone").asText());
-                audioAnalyze.setPitchVariation(audioResponseNode.path("data").path("pitch_variation").asText());
-                audioAnalyze.setSpeechRate(audioResponseNode.path("data").path("speech_rate").asText());
-                audioAnalyze.setSummary(audioResponseNode.path("data").path("summary").asText());
+                audioAnalyze.setTone(audioAnalyzeResponseNode.path("data").path("tone").asText());
+                audioAnalyze.setPitchVariation(audioAnalyzeResponseNode.path("data").path("pitch_variation").asText());
+                audioAnalyze.setSpeechRate(audioAnalyzeResponseNode.path("data").path("speech_rate").asText());
+                audioAnalyze.setSummary(audioAnalyzeResponseNode.path("data").path("summary").asText());
 
                 log.info("音频分析完成，分析结果：{}", audioAnalyze);
 

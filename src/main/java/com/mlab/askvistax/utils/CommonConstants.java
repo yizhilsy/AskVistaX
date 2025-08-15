@@ -18,6 +18,7 @@ public class CommonConstants {
     public static String followUpUrl;
     public static String videoAnalyzeUrl;
     public static String audioAnalyzeuUrl;
+    public static String summaryUrl;
 
     // 定义一个单例结束标记 Frame 对象
     public static final Frame POISON_PILL = new Frame();
@@ -46,6 +47,7 @@ public class CommonConstants {
         followUpUrl = "http://58.199.161.182:8000/llm/followup";
         videoAnalyzeUrl = "http://58.199.161.182:8000/understanding/video/analyze";
         audioAnalyzeuUrl = "http://58.199.161.182:8000/understanding/audio/analyze";
+        summaryUrl = "http://58.199.161.182:8000/llm/summary";
 
         FRAME_MS = 40;
         TARGET_SR = 16000;

@@ -11,13 +11,16 @@
         <result column="startTime" property="startTime"/>
         <result column="endTime" property="endTime"/>
         <result column="videoUrl" property="videoUrl"/>
+        <result column="resumeUrl" property="resumeUrl"/>
         <result column="videoAnalyzeResult" property="videoAnalyzeResult" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
         <result column="audioAnalyzeResult" property="audioAnalyzeResult" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
+        <result column="messageHistory" property="messageHistory" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
+        <result column="summary" property="summary" typeHandler="com.mlab.askvistax.utils.JsonTypeHandler"/>
     </resultMap>
 
 
     <select id="getInterviewById" resultMap="InterviewMap">
-        select interviewId, uid, postId, startTime, endTime, videoUrl, resumeUrl, videoAnalyzeResult, audioAnalyzeResult
+        select interviewId, uid, postId, startTime, endTime, videoUrl, resumeUrl, videoAnalyzeResult, audioAnalyzeResult, messageHistory,summary
         from interviews
         where interviewId = #{interviewId}
     </select>
@@ -83,6 +86,14 @@
 
             <if test="videoAnalyzeResult != null">
                 videoAnalyzeResult = #{videoAnalyzeResult, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
+            </if>
+
+            <if test="messageHistory != null">
+                messageHistory = #{messageHistory, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
+            </if>
+
+            <if test="summary != null">
+                summary = #{summary, typeHandler=com.mlab.askvistax.utils.JsonTypeHandler},
             </if>
         </set>
         where interviewId = #{interviewId}

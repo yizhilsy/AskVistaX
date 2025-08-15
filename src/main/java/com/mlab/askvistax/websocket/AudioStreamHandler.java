@@ -477,19 +477,20 @@ public class AudioStreamHandler extends AbstractWebSocketHandler {
 
         // AI 面试结束
         try {
+            // 将消息历史记录存入数据库
+            interview.setMessageHistory(messageHistory);
+            interviewService.updateInterview(interview);
+
             // 向前端发送面试终止消息
             JSONObject endJson = new JSONObject();
             endJson.put("type", "end");
             conCurrentSession.sendMessage(new TextMessage(endJson.toJSONString()));
             // 向面试分析线程发送分析队列结束信号
-
-
         } catch (Exception e) {
             log.error("异常", e);
         }
 
         log.info("AI 面试线程结束");
-        log.info("messageHistory: {}", messageHistory);
     }
 
     private void analyzer(String sessionId, Integer interviewId) {
